@@ -20,11 +20,17 @@ def get_store(rebuild: bool = False):
     if os.path.exists(INDEX_PATH) and not rebuild:
         print("→ 저장된 인덱스를 불러옵니다 (비용 0)")
         return FAISS.load_local(
-            INDEX_PATH, emb, allow_dangerous_deserialization=True)
+            INDEX_PATH, 
+            emb, 
+            allow_dangerous_deserialization=True
+            )
 
     print("→ 인덱스를 새로 만듭니다 (임베딩 비용 발생)")     
     chunks = prepare_chunks(DOC_PATH)     
-    store = FAISS.from_documents(chunks, emb)     
+    store = FAISS.from_documents(
+        chunks, 
+        emb
+        )     
     store.save_local(INDEX_PATH)
     print(f"✓ {INDEX_PATH}/ 에 저장 완료")     
     return store
