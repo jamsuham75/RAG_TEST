@@ -22,13 +22,25 @@ def _search(query, k, search_type):
     return _store.similarity_search_with_relevance_scores(query, k=k) 
 
 def retriever_node(state) -> dict:
+    retries = state.get("retries", 0)
+
     query = state.get("query") or state.get("question", "")
-    k     = state.get("top_k") or config.TOP_K
+
+    # 재시도할수록 검색 문서 수를 증가시킴
+    k = state.get("top_k") or (
+        config.TOP_K + retries * 3
+    )
+
     stype = state.get("search_type") or config.SEARCH_TYPE
+
+    # 재시도할수록 점수 기준을 조금 완화
     floor = state.get("min_score")
-    
+
     if floor is None:
-        floor = config.MIN_SCORE
+        floor = max(
+            0.30,
+            config.MIN_SCORE - retries * 0.05
+        )
     
     if not query.strip():
         return {"documents": [], "scores": [], "retrieval_ok": False,                 

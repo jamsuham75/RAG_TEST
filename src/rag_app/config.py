@@ -11,7 +11,7 @@ EMBED_MODEL   = "text-embedding-3-small"   # ⚠ 변경 시 인덱스 재생성
 INDEX_PATH    = "faiss_index"
 # ── 검색 ──
 TOP_K         = 5        # 3→5: +10%p (k=8은 노이즈로 하락) 
-MIN_SCORE     = -1.0     # 9차시 실측값
+MIN_SCORE     = -0.01     # 9차시 실측값
 SEARCH_TYPE   = "similarity"
 # ── 생성 ──
 LLM_MODEL     = "gpt-4o-mini"
