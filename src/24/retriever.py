@@ -3,11 +3,19 @@ import sys
 import warnings
 
 from dotenv import load_dotenv
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'rag_app'))
+
+# G:\RAG_TEST\src 를 Python 경로에 추가
+SRC_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..")
+)
+
+sys.path.insert(0, SRC_DIR)
+
 warnings.filterwarnings("ignore")
 
 import config
-from indexer import get_store
+
+from rag_app.indexer import get_store
 
 load_dotenv()
 
