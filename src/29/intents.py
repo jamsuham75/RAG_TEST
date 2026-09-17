@@ -10,20 +10,47 @@ def greeting_node(state) -> dict:
     }
     
 def calc_node(state) -> dict:
-    expr = state["question"].strip().rstrip("=?").strip()
-    
-    # 안전 검사: 숫자와 연산자만 허용 (eval 사용 시 필수)
-    if not re.fullmatch(r"[\d\s\+\-\*/\(\)\.]+", expr):
-        return {"answer": "계산할 수 없는 식입니다.",
-                "grade": "pass", "log": ["calc: 형식 오류"]}
-        try:
-            result = eval(expr, {"__builtins__": {}}, {})
-        except Exception:    
-            return {"answer": "계산할 수 없는 식입니다.",                 
-                "grade": "pass", "log": ["calc: 계산 실패"]}
-    
-    return {"answer": f"{expr} = {result}",
-            "grade": "pass", "log": [f"calc: {result}"]}
+    """
+    간단한 사칙연산 질문을 처리합니다.
+    """
+
+    expr = state.get("question", "").strip()
+
+    # 끝에 =, ?가 있으면 제거
+    expr = expr.rstrip("=?").strip()
+
+    try:
+        # 안전을 위해 허용된 문자만 검사
+        if not re.fullmatch(r"[\d\s+\-*/().,]+", expr):
+            raise ValueError("허용되지 않은 계산식")
+
+        # 쉼표 제거
+        clean_expr = expr.replace(",", "")
+
+        # 계산
+        result = eval(
+            clean_expr,
+            {"__builtins__": {}},
+            {}
+        )
+
+        return {
+            "answer": f"{expr} = {result}",
+            "grade": "pass",
+            "reason": "계산식 직접 처리",
+            "log": [f"계산: {expr} = {result}"],
+        }
+
+    except Exception as e:
+
+        return {
+            "answer": "계산식을 처리하지 못했습니다.",
+            "grade": "giveup",
+            "reason": f"계산 오류: {type(e).__name__}",
+            "log": [
+                f"계산 오류({type(e).__name__})"
+            ],
+        }
     
 def scope_node(state) -> dict:
     return {

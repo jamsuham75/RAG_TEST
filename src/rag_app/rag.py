@@ -49,7 +49,8 @@ def ask(question: str, k: int = None) -> dict:
         docs = _search(question, k)
     except Exception as e:
         print("[검색 오류]", e)
-        return {"answer": config.MSG_ERROR, "sources": [], "ok": False}     
+        return {"answer": config.MSG_ERROR, "sources": [], "ok": False}   
+      
     if not docs:
         return {"answer": config.MSG_NO_DOC, "sources": [], "ok": True}    
     try:
