@@ -52,51 +52,94 @@ def _check_citation(answer, n_docs):
 
 def generator_node(state) -> dict:
     docs = state.get("documents") or []
-    # 근거가 없으면 LLM을 부르지 않는다 (비용 절약)
+
     if not docs:
-        return {"answer": config.MSG_NO_DOC,
-                "insufficient": True,
-                "has_citation": False,
-                "log": ["생성: 근거 없음 - LLM 호출 생략"]}
+        return {
+            "answer": config.MSG_NO_DOC,
+            "insufficient": True,
+            "has_citation": False,
+            "log": ["생성: 근거 없음 - LLM 호출 생략"],
+        }
+
+    retries = state.get("retries", 0)
+    reason = state.get("reason", "")
+
+    context = build_context(docs)
+
+    if retries > 0 and reason:
+        chain = PROMPTS["retry"] | _llm | StrOutputParser()
+
+        payload = {
+            "context": context,
+            "question": state.get("question", ""),
+            "reason": reason,
+        }
+        prompt_type = "재시도 프롬프트"
+    else:
+        chain = _chain()
+
+        payload = {
+            "context": context,
+            "question": state.get("question", ""),
+        }
+        prompt_type = "기본 프롬프트"
+
     try:
-        answer = _chain().invoke({
-            "context":  build_context(docs),             
-            "question": state["question"],
-        })
+        answer = chain.invoke(payload)
+
     except Exception as e:
         return {
-            "answer": config.MSG_ERROR,                 
+            "answer": config.MSG_ERROR,
             "insufficient": True,
-            "has_citation": False,                 
+            "has_citation": False,
             "gen_error": type(e).__name__,
-            "log": [f"생성 오류: {type(e).__name__}"]}
-        
+            "log": [f"생성 오류: {type(e).__name__}"],
+        }
+
     ok, msg = _check_citation(answer, len(docs))
-    
+
     return {
-        "answer":       answer,
+        "answer": answer,
         "insufficient": NO_INFO in answer,
         "has_citation": ok,
-        "log": [f"생성: {len(answer)}자, {msg}"],
+        "log": [
+                f"생성: {prompt_type}, "
+                f"{len(answer)}자, {msg}"
+            ],
     }
     
 if __name__ == "__main__":
     from retriever import retriever_node
-    CASES = [
-        "환불은 며칠 이내에 신청해야 하나요?",   # 정상
-        "환불 방법과 수수료를 알려주세요",       # 일부만 있음
-        "대표이사가 누구인가요?",                # 근거 없음
-    ]
-    
-    for q in CASES:
-        s = {"question": q, "query": q}         
-        s.update(retriever_node(s))          # 검색
-        r = generator_node(s)                # 생성
-        
-        print(f"\n{'='*55}")
-        print(f"Q: {q}")
-        print(f"근거 {len(s['documents'])}건")
-        print(f"A: {r['answer'][:110]}")
-        print(f"   부족신고={r['insufficient']} "
-              f"인용정상={r['has_citation']}")         
-        print(f"   {r['log'][0]}")
+
+    question = "환불 방법과 수수료를 알려주세요"
+
+    # 1단계: 검색
+    state = {
+        "question": question,
+        "query": question,
+        "retries": 0,
+        "reason": "",
+    }
+
+    state.update(retriever_node(state))
+
+    # 2단계: 첫 번째 생성
+    result1 = generator_node(state)
+
+    print("\n[1회차 결과]")
+    print(result1["answer"])
+    print(result1["log"])
+
+    # 첫 번째 결과를 State에 반영
+    state.update(result1)
+
+    # 실제로는 Verifier가 아래 값을 기록함
+    state["retries"] = 1
+    state["reason"] = "답변을 1문장으로 줄이세요"
+
+    # 3단계: 피드백을 반영한 재생성
+    result2 = generator_node(state)
+
+    print("\n[2회차 결과]")
+    print(result2["answer"])
+    print(result2["log"])

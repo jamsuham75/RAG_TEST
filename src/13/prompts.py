@@ -36,3 +36,26 @@ RAG_PROMPT_V3 = ChatPromptTemplate.from_template(
 PROMPTS = {"v1": RAG_PROMPT_V1,            
            "v2": RAG_PROMPT_V2,            
            "v3": RAG_PROMPT_V3}
+
+
+
+# 25차시에 추가
+
+RETRY_PROMPT = ChatPromptTemplate.from_template(
+    "당신은 사내 문서를 안내하는 담당자입니다.\n\n"
+    "[이전 시도 결과]\n"
+    "직전 답변이 아래 이유로 반려되었습니다.\n"
+    "{reason}\n"
+    "이번에는 반드시 이 문제를 해결해서 작성하십시오.\n\n"
+    "[규칙]\n"
+    "1. 아래 [자료]에 있는 내용만 근거로 답하십시오.\n"
+    "2. 질문의 일부만 자료에 있다면 있는 부분만 답하십시오.\n"
+    "3. 각 문장 끝에 근거 번호를 [1] 형식으로 반드시 표기하십시오.\n"
+    "4. 반드시 한 문장으로 간결하게 답하십시오.\n\n"
+    "[자료]\n"
+    "{context}\n\n"
+    "[질문]\n"
+    "{question}"
+)
+
+PROMPTS["retry"] = RETRY_PROMPT
