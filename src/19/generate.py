@@ -20,10 +20,31 @@ _chain = (PROMPTS[config.PROMPT_VER]
 NO_INFO = "자료에서 확인할 수 없습니다"
 
 def _build_context(docs):
-    return "\n\n---\n\n".join(
-        f"[{i}] {d.metadata['filename']} p.{d.metadata['page_no']}\n"         
-        f"{d.page_content}"
-        for i, d in enumerate(docs, 1))
+    parts = []
+
+    for i, d in enumerate(docs, 1):
+        metadata = d.metadata or {}
+
+        filename = (
+            metadata.get("filename")
+            or metadata.get("file_name")
+            or metadata.get("source")
+            or "unknown"
+        )
+
+        page_no = (
+            metadata.get("page_no")
+            or metadata.get("page")
+            or metadata.get("pageno")
+            or "?"
+        )
+
+        parts.append(
+            f"[{i}] {filename} p.{page_no}\n"
+            f"{d.page_content}"
+        )
+
+    return "\n\n---\n\n".join(parts)
 
 def generate_node(state: dict) -> dict:
     # 생성만 담당한다.
