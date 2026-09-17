@@ -59,3 +59,22 @@ RETRY_PROMPT = ChatPromptTemplate.from_template(
 )
 
 PROMPTS["retry"] = RETRY_PROMPT
+
+
+# 26차시에 추가
+
+JUDGE_PROMPT = ChatPromptTemplate.from_template(
+    "당신은 RAG 답변을 검증하는 엄격한 심판입니다.\n"
+    "답변을 생성하지 말고, 오직 평가만 하십시오.\n\n"
+    "[근거 자료]\n{context}\n\n"
+    "[사용자 질문]\n{question}\n\n"
+    "[검증할 답변]\n{answer}\n\n"
+    "[평가 기준]\n"
+    "grounded : 답변의 모든 주장이 근거 자료 안에 있으면 true.\n"     
+    "           근거에 없는 숫자·조건·설명이 하나라도 있으면 false.\n"     
+    "relevant : 답변이 질문에 실제로 대답하면 true.\n"
+    "           질문의 핵심을 비껴갔으면 false.\n"
+    "reason   : 판정 이유를 한 문장으로. false인 항목이 있으면\n"     
+    "           어느 부분이 문제인지 구체적으로 쓸 것.\n\n"
+    "[출력 형식 - 다른 말은 절대 쓰지 마십시오]\n"
+    '{{"grounded": true, "relevant": true, "reason": "..."}}' )
