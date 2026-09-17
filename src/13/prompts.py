@@ -78,3 +78,19 @@ JUDGE_PROMPT = ChatPromptTemplate.from_template(
     "           어느 부분이 문제인지 구체적으로 쓸 것.\n\n"
     "[출력 형식 - 다른 말은 절대 쓰지 마십시오]\n"
     '{{"grounded": true, "relevant": true, "reason": "..."}}' )
+
+# 29차시 추가
+CLASSIFY_PROMPT = ChatPromptTemplate.from_template(     
+    "사용자 질문의 유형을 하나만 골라 그 단어만 출력하십시오.\n"
+    "다른 설명은 절대 하지 마십시오.\n\n"
+    "[유형]\n"
+    "greeting : 인사, 감사, 잡담 (정보 요청이 아님)\n"
+    "calc     : 순수한 수식 계산\n"
+    "scope    : 우리 문서와 무관한 주제 "
+    "(날씨, 뉴스, 일반 상식 등)\n"
+    "document : 사내 문서에서 찾아야 할 질문\n\n"
+    "[판단 원칙]\n"
+    "애매하면 document를 선택하십시오.\n\n"     
+    "[질문]\n{question}\n\n"
+    "[유형]" 
+    )
