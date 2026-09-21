@@ -11,7 +11,9 @@ from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
 store = get_store()
+
 llm   = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 def diagnose(question, k=3):
@@ -19,6 +21,7 @@ def diagnose(question, k=3):
     print("Q:", question)
     pairs = store.similarity_search_with_relevance_scores(
         question, k=k)
+    
     # ── 검색 단계 진단 ──
     if not pairs:
         print("→ 【검색 실패】 결과가 0건입니다")
@@ -39,6 +42,7 @@ def diagnose(question, k=3):
     if not passed:
         print("\n→ 【검색 실패】 기준을 넘는 조각이 없습니다")
         return
+    
     # ── 생성 단계 ──
     docs = []
     for d, s in passed:
@@ -49,6 +53,7 @@ def diagnose(question, k=3):
               f"[자료]\n{build_context(docs)}\n\n[질문] {question}")     
     
     answer = llm.invoke(prompt).content
+    
     print("\nA:", answer)    
     print("\n👉 판단: 위 조각들 안에 정답이 있었는가?")
     print("   있는데 답이 틀렸다면 → 생성 문제 (13차시)")     

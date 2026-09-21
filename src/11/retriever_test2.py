@@ -7,6 +7,7 @@ from indexer import get_store
 warnings.filterwarnings("ignore", message="Relevance scores must be between 0 and 1")
 
 store = get_store()
+
 QUESTION = "환불과 교환은 어떻게 다른가요?"
 
 def show(name, retriever):
@@ -39,7 +40,7 @@ def compare_k(question, ks=(1, 3, 5)):
         scores = [s for _, s in pairs]  # ← 변경: round 제거
         low = sum(1 for s in scores if s < 0.47)
         print(f"k={k:<3} 점수={[round(float(s), 3) for s in scores]}")  # ← 변경: print할 때 round
-        print(f"     기준 미달(0.47) 조각: {low}개")
+        print(f"     기준 미달(0.1) 조각: {low}개")
         print()
 
 compare_k("환불은 며칠 이내인가요?")

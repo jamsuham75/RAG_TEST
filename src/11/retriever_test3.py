@@ -34,12 +34,14 @@ print("=" * 58 + "\n")
 def compare_k(question, ks=(1, 3, 5)):
     print(f"질문: {question}")
     print("=" * 58)
+
     for k in ks:
         pairs = store.similarity_search_with_relevance_scores(question, k=k)
         scores = [s for _, s in pairs]
-        low = sum(1 for s in scores if s < 0.47)
+        low = sum(1 for s in scores if s < 0.1)
+
         print(f"k={k:<3} 점수={[round(float(s), 3) for s in scores]}")
-        print(f"     기준 미달(0.47) 조각: {low}개")
+        print(f"     기준 미달(0.1) 조각: {low}개")
         print()
 
 compare_k("환불은 며칠 이내인가요?")

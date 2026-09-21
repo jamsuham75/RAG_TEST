@@ -19,10 +19,12 @@ def diagnose(question, k=3):
     print("Q:", question)
     pairs = store.similarity_search_with_relevance_scores(
         question, k=k)
+    
     # ── 검색 단계 진단 ──
     if not pairs:
         print("→ 【검색 실패】 결과가 0건입니다")
         return
+    
     # 기준(MIN_SCORE)을 넘는 것만 골라 담기
     passed = []
     for d, s in pairs:
@@ -39,6 +41,7 @@ def diagnose(question, k=3):
     if not passed:
         print("\n→ 【검색 실패】 기준을 넘는 조각이 없습니다")
         return
+    
     # ── 생성 단계 ──
     docs = []
     for d, s in passed:
@@ -55,10 +58,6 @@ def diagnose(question, k=3):
     print("   없다면              → 검색 문제 (7·11차시)")     
     print("=" * 60)
     
-    # diagnose.py 끝에 추가
-
-# diagnose.py 끝에 추가
-
 if __name__ == "__main__":
     TESTS = {
         "① 정상 (문서에 명확히 있음)": [
