@@ -15,15 +15,15 @@ from langchain_core.documents import Document
 full_text = "\n\n".join([d.page_content for d in docs])
 merged_doc = Document(page_content=full_text)
 
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=200,        # 조각 하나의 최대 길이
-    chunk_overlap=50,      # 겹치는 길이
-    # separators=["\n\n", "\n", ". ", " ", ""],   # 자를 곳 우선순위     
-    separators=[". ", " ", ""],   # 자를 곳 우선순위     
-    length_function=len,   # 길이를 세는 방법 (글자 수)
-)
+# splitter = RecursiveCharacterTextSplitter(
+#     chunk_size=200,        # 조각 하나의 최대 길이
+#     chunk_overlap=50,      # 겹치는 길이
+#     # separators=["\n\n", "\n", ". ", " ", ""],   # 자를 곳 우선순위     
+#     separators=[". ", " ", ""],   # 자를 곳 우선순위     
+#     length_function=len,   # 길이를 세는 방법 (글자 수)
+# )
 
-chunks = splitter.split_documents([merged_doc]) 
+# chunks = splitter.split_documents([merged_doc]) 
 
 
 def try_size(docs, size, overlap):
