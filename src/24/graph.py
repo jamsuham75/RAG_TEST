@@ -46,7 +46,9 @@ def ask(question: str) -> dict:
                        {"recursion_limit": 20})     
     return {
         "answer":  final["answer"],
-        "sources": [{"file": d.metadata["filename"],                      "page": d.metadata["page_no"]}                    for d in final.get("documents", [])],
+        "sources": [{"file": d.metadata["filename"],
+                    "page": d.metadata["page_no"]}
+                    for d in final.get("documents", [])],
         "cited":   final.get("has_citation", False),
         "log":     final.get("log", []),
         "ok":      True,

@@ -26,7 +26,8 @@ def generate(state: MiniState):
     # 재시도할수록 답변이 좋아지는 상황을 흉내
     quality = "좋은" if state["retries"] >= 1 else "부실한"     
     print(f"   → generate: {quality} 답변")
-    return {"answer": f"{n}건 근거로 만든 {quality} 답변",             "log": [f"생성({quality})"]}
+    return {"answer": f"{n}건 근거로 만든 {quality} 답변",             
+            "log": [f"생성({quality})"]}
 
 def verify(state: MiniState):
     ok = "좋은" in state["answer"]

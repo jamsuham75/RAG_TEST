@@ -5,8 +5,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '18'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '19'))
 
 from langgraph.graph import StateGraph, START, END
-from graph_state import RAGState
-from graph_state2 import make_initial_state
+# from graph_state2 import RAGState
+from graph_state2 import make_initial_state, RAGState
 from retrieve import retrieve_node
 from generate import generate_node
 from fallback import fallback_node

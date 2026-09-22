@@ -26,7 +26,8 @@ def generate(state: MiniState):
     # 재시도할수록 답변이 좋아지는 상황을 흉내
     quality = "좋은" if state["retries"] >= 1 else "부실한"     
     print(f"   → generate: {quality} 답변")
-    return {"answer": f"{n}건 근거로 만든 {quality} 답변",             "log": [f"생성({quality})"]}
+    return {"answer": f"{n}건 근거로 만든 {quality} 답변",             
+            "log": [f"생성({quality})"]}
 
 def verify(state: MiniState):
     ok = "좋은" in state["answer"]
@@ -132,12 +133,12 @@ if __name__ == "__main__":
     print("\n■ 그래프 실행")
 
 # 6-1) invoke — 결과만
-    # result = app.invoke(init("환불 규정은?"))
+    result = app.invoke(init("환불 규정은?"))
 
-    # print("\n최종 결과:")
-    # print(result)
+    print("\n최종 결과:")
+    print(result)
         
 #  6-2) stream — 과정까지 
-    for step in app.stream(init("환불 규정은?"), {"recursion_limit": 15}):
-        for node, update in step.items():         
-            print(f"[{node}] {update}")
+    # for step in app.stream(init("환불 규정은?"), {"recursion_limit": 15}):
+    #     for node, update in step.items():         
+    #         print(f"[{node}] {update}")
