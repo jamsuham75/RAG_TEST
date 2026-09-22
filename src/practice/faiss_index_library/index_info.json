@@ -1,0 +1,8 @@
+{
+  "filename": "01_도서관_이용안내.pdf",
+  "pdf_hash": "9d7ddeaa283506f4cfd1e5e5d52080ef5e5cb21c0d17fab059d9e3a96ea377e7",
+  "chunk_size": 500,
+  "chunk_overlap": 50,
+  "embed_model": "text-embedding-3-small",
+  "preprocess_version": 1
+}
