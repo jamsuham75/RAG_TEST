@@ -9,9 +9,12 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser 
 from retriever import search, build_context
 from prompts import RAG_PROMPT_V3
+from validators import check_citation
 
 load_dotenv()
-llm    = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
 _chain = RAG_PROMPT_V3 | llm | StrOutputParser()
 NO_INFO = "자료에서 확인할 수 없습니다"
 
@@ -44,10 +47,12 @@ def ask(question, k=3, verbose=True):
     found = re.findall(r"\[(\d+)\]", answer)
     nums = [int(n) for n in found]
     
-    cited = len(nums) > 0
-    for n in nums:
-        if n < 1 or n > len(docs):
-            cited = False
+    # cited = len(nums) > 0
+    # for n in nums:
+    #     if n < 1 or n > len(docs):
+    #         cited = False
+
+    cited, msg = check_citation(answer, len(docs))
     
     if verbose:
         print("A:", answer)

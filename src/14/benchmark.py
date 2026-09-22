@@ -1,16 +1,10 @@
 import time
-import warnings
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter 
 import os
 import sys
-
-# from yaml import warnings
-
-# ✅ 경고 메시지 모두 제거
-warnings.filterwarnings('ignore')
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '06'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '13'))
@@ -24,7 +18,12 @@ load_dotenv()
 emb = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-DOCS = load_documents("../../data/manual.pdf")
+# DOCS = load_documents("../../data/manual.pdf")
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[2]
+PDF_PATH = ROOT / "data" / "manual.pdf"
+DOCS = load_documents(str(PDF_PATH))
+
 _cache = {}
 
 def make_store(chunk_size, overlap):

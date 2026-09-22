@@ -25,6 +25,7 @@ emb = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 DOCS = load_documents("../../data/manual.pdf")
+
 _cache = {}
 
 def make_store(chunk_size, overlap):

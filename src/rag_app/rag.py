@@ -7,9 +7,12 @@ from indexer import get_store
 from prompts import PROMPTS
 
 load_dotenv()
+
 _store = get_store()
+
 _llm   = ChatOpenAI(model=config.LLM_MODEL,
                     temperature=config.TEMPERATURE)
+
 _chain = PROMPTS[config.PROMPT_VER] | _llm | StrOutputParser() 
 
 def _search(question, k=None):

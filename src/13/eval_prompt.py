@@ -40,6 +40,8 @@ def evaluate(version):
     if fails:
         print("   실패:", ", ".join(fails[:5]))     
     return rate
+
 print("■ 프롬프트 버전별 정답률") 
+
 for v in ("v1", "v2", "v3"):     
     evaluate(v)

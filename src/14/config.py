@@ -6,8 +6,8 @@
 # ═════════════════════════════════════════════
 # ── 문서 처리 ──
 DOC_PATH      = "../../data/manual.pdf"
-CHUNK_SIZE    = 500      # 500→300: +10%p, 토큰 33% 절감
-CHUNK_OVERLAP = 50       # chunk_size의 10%
+CHUNK_SIZE    = 300      # 500→300: +10%p, 토큰 33% 절감
+CHUNK_OVERLAP = 30       # chunk_size의 10%
 # ── 임베딩 · 저장소 ──
 EMBED_MODEL   = "text-embedding-3-small"   # ⚠ 변경 시 인덱스 재생성 
 INDEX_PATH    = "faiss_index"
