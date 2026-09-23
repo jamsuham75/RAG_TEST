@@ -30,7 +30,8 @@ SEARCH_TYPE = "similarity"
 LLM_MODEL = "gpt-4o-mini"
 TEMPERATURE = 0
 PROMPT_VER = "v3"
-
+MAX_RETRY = 3
+USE_LLM_CLASSIFY = True
 
 # ── 메시지 ──
 MSG_NO_DOC = "관련 자료를 찾지 못했습니다."

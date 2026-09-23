@@ -13,16 +13,15 @@ EMBED_MODEL   = "text-embedding-3-small"   # ⚠ 변경 시 인덱스 재생성
 INDEX_PATH    = "faiss_index"
 # ── 검색 ──
 TOP_K         = 5        # 3→5: +10%p (k=8은 노이즈로 하락) 
-MIN_SCORE     = -0.1     # 9차시 실측값
+MIN_SCORE     = 0.1     # 9차시 실측값
 SEARCH_TYPE   = "similarity"
 # ── 생성 ──
-LLM_MODEL     = "gpt-4o-mini"
-TEMPERATURE   = 0
-PROMPT_VER    = "v3"     # v2→v3: +10%p, 토큰 증가 없음
+LLM_MODEL = "gpt-4o-mini"
+TEMPERATURE = 0
+PROMPT_VER = "v3"
+MAX_RETRY = 3
+USE_LLM_CLASSIFY = True
+
+# ── 메시지 ──
 MSG_NO_DOC = "관련 자료를 찾지 못했습니다."
-# ── 실험 기록 ──
-# | 실험   | 설정                  | 정답률 | 토큰 | 
-# # | 기준선 | chunk500 k3 v2        |  60%  |  840 | 
-# # | 1차    | chunk300 k3 v2        |  70%  |  560 | 
-# # | 2차    | chunk300 k5 v2        |  80%  |  890 | 
-# # | 3차    | chunk300 k5 v3 ★최종  |  90%  |  890 |
+MSG_ERROR = "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요."

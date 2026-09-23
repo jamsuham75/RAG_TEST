@@ -3,52 +3,35 @@
 # 32차시 - 전체 회귀 테스트
 # ===================================================
 
-import time
-
 from graph32 import ask
 
 
-# ===================================================
-# 테스트 데이터
-# ===================================================
-# 기존에 사용하던 회귀 테스트 질문을 그대로 사용합니다.
-#
-# q    : 질문
-# keys : 정답에 포함되어야 할 핵심 키워드
-# ===================================================
-
+# 테스트 질문
 TESTS = [
-
     {
         "q": "환불은 며칠 이내인가요?",
         "keys": ["7일"],
     },
-
     {
         "q": "교환 기간은 얼마인가요?",
         "keys": ["14일"],
     },
-
     {
         "q": "고객센터 운영 시간은?",
         "keys": ["09:00", "18:00", "9시", "18시"],
     },
-
     {
         "q": "반품하고 싶은데 언제까지?",
         "keys": ["7일"],
     },
-
     {
         "q": "물건 바꾸려면 택배비 누가?",
         "keys": ["배송비", "택배비", "고객"],
     },
-
     {
         "q": "환불 방법과 수수료는?",
         "keys": ["환불", "수수료"],
     },
-
     {
         "q": "대표이사가 누구인가요?",
         "keys": [
@@ -57,290 +40,80 @@ TESTS = [
             "정보가 없습니다",
         ],
     },
-
-    # ------------------------------------------------
-    # 기존 회귀 테스트 질문을 아래에 계속 추가
-    # ------------------------------------------------
-
 ]
 
 
-# ===================================================
-# 정답 키워드 확인
-# ===================================================
-
-def _has_any_key(text, keys):
-    """
-    답변에 정답 키워드 중 하나라도 포함되어 있으면 True
-    """
-
-    text = text or ""
+# 답변에 키워드가 하나라도 있는지 확인
+def check_answer(answer, keys):
 
     for key in keys:
-
-        if key in text:
+        if key in answer:
             return True
 
     return False
 
 
 # ===================================================
-# 전체 회귀 테스트
+# 테스트 실행
 # ===================================================
 
-def run():
+correct = 0
+pass_count = 0
+retry_count = 0
+rewrite_count = 0
+# total_time = 0
 
-    hit = 0
-    results = []
 
-    t_start = time.time()
+for test in TESTS:
 
+    question = test["q"]
+    keys = test["keys"]
 
-    # =================================================
-    # 질문별 테스트
-    # =================================================
+    # RAG 실행
+    result = ask(question)
 
-    for test in TESTS:
+    answer = result.get("answer", "")
 
-        question = test["q"]
-        keys = test["keys"]
+    # 정답 확인
+    ok = check_answer(answer, keys)
 
-
-        # ---------------------------------------------
-        # graph32.py의 최종 RAG 실행
-        # ---------------------------------------------
-
-        result = ask(
-            question
-        )
-
-
-        # ---------------------------------------------
-        # 정답 판정
-        # ---------------------------------------------
-
-        ok = _has_any_key(
-            result["answer"],
-            keys
-        )
-
-        if ok:
-            hit += 1
-
-
-        # ---------------------------------------------
-        # 결과 저장
-        # ---------------------------------------------
-
-        results.append({
-
-            "q":
-                question,
-
-            "ok":
-                ok,
-
-            "intent":
-                result.get(
-                    "intent",
-                    ""
-                ),
-
-            "grade":
-                result.get(
-                    "grade",
-                    ""
-                ),
-
-            "retries":
-                result.get(
-                    "retries",
-                    0
-                ),
-
-            "rewrites":
-                result.get(
-                    "rewrites",
-                    0
-                ),
-
-            "sec":
-                result.get(
-                    "elapsed",
-                    0.0
-                ),
-        })
-
-
-        # ---------------------------------------------
-        # 질문별 결과 출력
-        # ---------------------------------------------
-
-        mark = (
-            "✓"
-            if ok
-            else "✗"
-        )
-
-        print(
-            f"{mark} "
-            f"{question[:30]:<32} "
-            f"{result.get('grade', ''):<10} "
-            f"재생성{result.get('retries', 0)} "
-            f"재검색{result.get('rewrites', 0)} "
-            f"{result.get('elapsed', 0.0):.1f}초"
-        )
-
-
-    # =================================================
-    # 전체 통계
-    # =================================================
-
-    n = len(TESTS)
-
-
-    print(
-        f"\n{'=' * 60}"
-    )
-
-
-    # -----------------------------------------------
-    # 테스트 데이터가 없는 경우 방어
-    # -----------------------------------------------
-
-    if n == 0:
-
-        print(
-            "테스트 데이터가 없습니다."
-        )
-
-        return []
-
-
-    # -----------------------------------------------
-    # 정답률
-    # -----------------------------------------------
-
-    print(
-        f"정답률   : "
-        f"{hit}/{n} = "
-        f"{hit / n * 100:.0f}%"
-    )
-
-
-    # -----------------------------------------------
-    # 검증 / 재생성 / 재검색 통계
-    # -----------------------------------------------
-
-    pass_count = 0
-    retry_count = 0
-    rewrite_count = 0
-
-
-    for result in results:
-
-        if result["grade"] == "pass":
-            pass_count += 1
-
-        if result["retries"] > 0:
-            retry_count += 1
-
-        if result["rewrites"] > 0:
-            rewrite_count += 1
-
-
-    print(
-        f"검증통과 : "
-        f"{pass_count}/{n}"
-    )
-
-    print(
-        f"재생성   : "
-        f"{retry_count}건"
-    )
-
-    print(
-        f"재검색   : "
-        f"{rewrite_count}건"
-    )
-
-
-    # -----------------------------------------------
-    # 평균 실행 시간
-    # -----------------------------------------------
-
-    avg_sec = (
-        sum(
-            result["sec"]
-            for result in results
-        )
-        / n
-    )
-
-
-    print(
-        f"평균시간 : "
-        f"{avg_sec:.1f}초"
-    )
-
-
-    # -----------------------------------------------
-    # 전체 실행 시간
-    # -----------------------------------------------
-
-    total_sec = (
-        time.time()
-        - t_start
-    )
-
-
-    print(
-        f"총 소요  : "
-        f"{total_sec:.0f}초"
-    )
-
-
-    # =================================================
-    # 오답 질문 출력
-    # =================================================
-
-    wrong = [
-
-        result
-
-        for result in results
-
-        if not result["ok"]
-    ]
-
-
-    if wrong:
-
-        print(
-            f"\n오답 / 확인 필요: "
-            f"{len(wrong)}건"
-        )
-
-        for result in wrong:
-
-            print(
-                f"  ✗ {result['q']}"
-            )
-
+    if ok:
+        correct += 1
+        mark = "✓"
     else:
+        mark = "✗"
 
-        print(
-            "\n✓ 모든 테스트를 통과했습니다."
-        )
+    # 통계
+    if result.get("grade") == "pass":
+        pass_count += 1
 
+    if result.get("retries", 0) > 0:
+        retry_count += 1
 
-    return results
+    if result.get("rewrites", 0) > 0:
+        rewrite_count += 1
+
+    # total_time += result.get("elapsed", 0)
+
+    # 질문별 결과
+    print(
+        f"{mark} {question} | "
+        f"판정={result.get('grade')} | "
+        f"재생성={result.get('retries', 0)} | "
+        f"재검색={result.get('rewrites', 0)}"
+    )
 
 
 # ===================================================
-# 직접 실행
+# 전체 결과
 # ===================================================
 
-if __name__ == "__main__":
+count = len(TESTS)
 
-    run()
+print("\n" + "=" * 50)
+print(f"정답률   : {correct}/{count} ({correct / count * 100:.0f}%)")
+print(f"검증통과 : {pass_count}/{count}")
+print(f"재생성   : {retry_count}건")
+print(f"재검색   : {rewrite_count}건")
+# print(f"평균시간 : {total_time / count:.1f}초")
+print("=" * 50)

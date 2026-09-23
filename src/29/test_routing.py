@@ -1,24 +1,18 @@
 import os
 import sys
-import warnings
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
-warnings.filterwarnings("ignore")
 
 sys.path.insert(0, SRC_DIR)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '25'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '13'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '24'))
-
-import json, re
-import config
 
 from graph29 import app
 from graph_state2 import make_initial_state
 
-import time
 
+# ===================================================
+# 테스트 질문
+# ===================================================
 
 CASES = [
     ("안녕하세요", "greeting"),
@@ -30,40 +24,30 @@ CASES = [
 ]
 
 
-for q, expected in CASES:
-    t0 = time.time()
+# ===================================================
+# 테스트 실행
+# ===================================================
 
-    nodes = []
-    final = None
+for question, expected in CASES:
 
-    # stream으로 실행하면서 경로와 최종 상태를 함께 확인
-    for step in app.stream(
-        make_initial_state(q),
-        {
-            "recursion_limit": 25,
-        },
-    ):
-        nodes.extend(step.keys())
+    # 그래프 실행
+    result = app.invoke(
+        make_initial_state(question),
+        {"recursion_limit": 25}
+    )
 
-        # 각 단계의 상태를 합쳐 최종 상태 구성
-        if isinstance(step, dict):
-            for node_state in step.values():
-                if isinstance(node_state, dict):
-                    if final is None:
-                        final = {}
+    # 실제 분류 결과
+    actual = result.get("intent", "")
 
-                    final.update(node_state)
+    # 예상값과 실제값 비교
+    if actual == expected:
+        mark = "✓"
+    else:
+        mark = "✗"
 
-    sec = time.time() - t0
-
-    if final is None:
-        final = {}
-
-    actual = final.get("intent", "")
-    mark = "✓" if actual == expected else "✗"
-
-    print(f"\n{mark} Q: {q}")
-    print(f"   유형: {actual} (기대: {expected})")
-    print(f"   경로: {' -> '.join(nodes)}")
-    print(f"   시간: {sec:.2f}초")
-    print(f"   A: {final.get('answer', '')[:60]}")
+    # 결과 출력
+    print()
+    print(f"{mark} 질문: {question}")
+    print(f"   실제 분류: {actual}")
+    print(f"   예상 분류: {expected}")
+    print(f"   답변: {result.get('answer', '')[:60]}")

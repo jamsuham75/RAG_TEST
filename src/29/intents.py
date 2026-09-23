@@ -1,62 +1,86 @@
 import re
-import config
 
-def greeting_node(state) -> dict:
+
+# ============================================================
+# 1. 인사말 처리 노드
+# ============================================================
+def greeting_node(state):
+
+    answer = """
+안녕하세요! 사내 문서에 관한 질문을 도와드립니다.
+예: 환불 규정, 휴가 신청 방법, 고객센터 운영 시간 등
+"""
+
     return {
-        "answer": ("안녕하세요! 사내 문서에 관한 질문을 도와드립니다.\n"
-                   "예: 환불 규정, 휴가 신청 방법, 고객센터 운영 시간 등"),         
+        "answer": answer.strip(),
         "grade": "pass",
-        "log": ["greeting 응답"],
+        "log": ["인사말 응답"]
     }
-    
-def calc_node(state) -> dict:
-    """
-    간단한 사칙연산 질문을 처리합니다.
-    """
 
-    expr = state.get("question", "").strip()
 
-    # 끝에 =, ?가 있으면 제거
+# ============================================================
+# 2. 계산 처리 노드
+# ============================================================
+def calc_node(state):
+
+    # 사용자가 입력한 질문 가져오기
+    question = state.get("question", "")
+
+    # 앞뒤 공백 제거
+    expr = question.strip()
+
+    # 마지막의 = 또는 ? 제거
     expr = expr.rstrip("=?").strip()
 
-    try:
-        # 안전을 위해 허용된 문자만 검사
-        if not re.fullmatch(r"[\d\s+\-*/().,]+", expr):
-            raise ValueError("허용되지 않은 계산식")
 
-        # 쉼표 제거
-        clean_expr = expr.replace(",", "")
-
-        # 계산
-        result = eval(
-            clean_expr,
-            {"__builtins__": {}},
-            {}
-        )
-
-        return {
-            "answer": f"{expr} = {result}",
-            "grade": "pass",
-            "reason": "계산식 직접 처리",
-            "log": [f"계산: {expr} = {result}"],
-        }
-
-    except Exception as e:
+    # 계산식에 사용할 수 없는 문자가 있는지 검사
+    if not re.fullmatch(r"[\d\s+\-*/().,]+", expr):
 
         return {
             "answer": "계산식을 처리하지 못했습니다.",
             "grade": "giveup",
-            "reason": f"계산 오류: {type(e).__name__}",
-            "log": [
-                f"계산 오류({type(e).__name__})"
-            ],
+            "reason": "허용되지 않은 문자가 있습니다.",
+            "log": ["계산 실패"]
         }
-    
-def scope_node(state) -> dict:
+
+
+    try:
+        # 1,000 + 2,000 같은 경우 쉼표 제거
+        clean_expr = expr.replace(",", "")
+
+        # 실제 계산
+        result = eval(clean_expr)
+
+        return {
+            "answer": f"{expr} = {result}",
+            "grade": "pass",
+            "reason": "계산 완료",
+            "log": [f"계산 완료: {expr} = {result}"]
+        }
+
+    except:
+
+        return {
+            "answer": "계산식을 처리하지 못했습니다.",
+            "grade": "giveup",
+            "reason": "계산 중 오류 발생",
+            "log": ["계산 실패"]
+        }
+
+
+# ============================================================
+# 3. 문서 범위 밖 질문 처리 노드
+# ============================================================
+def scope_node(state):
+
+    answer = """
+죄송합니다.
+저는 사내 문서에 관한 질문에만 답변할 수 있습니다.
+문서와 관련된 내용을 물어봐 주세요.
+"""
+
     return {
-        "answer": ("죄송합니다. 저는 사내 문서에 관한 질문에만 "
-                   "답변할 수 있습니다.\n"
-                   "문서와 관련된 내용을 물어봐 주세요."),
+        "answer": answer.strip(),
         "grade": "pass",
-        "log": ["scope: 범위 밖 안내"],     
-}
+        "log": ["문서 범위 밖 질문"]
+    }

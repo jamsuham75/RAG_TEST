@@ -3,7 +3,7 @@ import sys
 
 
 # ===================================================
-# 모듈 경로 설정
+# 다른 차시의 파일을 import하기 위한 경로 설정
 # ===================================================
 
 BASE_DIR = os.path.dirname(__file__)
@@ -16,259 +16,263 @@ sys.path.insert(0, os.path.join(BASE_DIR, "..", "26"))
 sys.path.insert(0, os.path.join(BASE_DIR, "..", "29"))
 
 
+# ===================================================
+# 필요한 모듈 가져오기
+# ===================================================
+
 from langgraph.graph import StateGraph, START, END
 
 from graph_state import RAGState
 from graph_state2 import make_initial_state
+
+from classifier import classifier_node
+from intents import greeting_node, calc_node, scope_node
 
 from retriever import retriever_node
 from generator import generator_node
 from verifier import verifier_node
 from fallback import fallback_node
 
-from classifier import classifier_node
-from intents import (
-    greeting_node,
-    calc_node,
-    scope_node,
-)
-
 import config
 
 
-MAX_RETRY = getattr(config, "MAX_RETRY", 2)
+MAX_RETRY = config.MAX_RETRY
 
 
 # ===================================================
-# 재시도 횟수 증가 노드
+# 재시도 횟수 증가
 # ===================================================
 
-def bump_node(state: RAGState) -> dict:
-    n = state.get("retries", 0) + 1
+def bump_node(state):
+
+    retries = state.get("retries", 0) + 1
 
     return {
-        "retries": n,
-        "log": [f"재시도 {n}회차 진입"],
+        "retries": retries,
+        "log": [f"재시도 {retries}회차"]
     }
 
 
 # ===================================================
-# 분류 결과 상수
+# 1. 질문 종류에 따라 이동할 곳 결정
 # ===================================================
 
-GREETING = "greeting"
-CALC = "calc"
-SCOPE = "scope"
-DOCUMENT = "document"
+def route_intent(state):
+
+    intent = state.get("intent", "document")
+
+    if intent == "greeting":
+        return "greeting"
+
+    if intent == "calc":
+        return "calc"
+
+    if intent == "scope":
+        return "scope"
+
+    return "document"
 
 
 # ===================================================
-# 라우팅 함수
+# 2. 검색 결과에 따라 이동할 곳 결정
 # ===================================================
 
-def route_by_intent(state: RAGState) -> str:
-    """
-    분류 결과에 따라 다음 노드를 결정합니다.
-    """
+def route_retrieve(state):
 
-    intent = state.get("intent", DOCUMENT)
+    if state.get("retrieval_ok"):
+        return "success"
 
-    if intent in (GREETING, CALC, SCOPE):
-        return intent
-
-    # 알 수 없는 값이나 document는 RAG 검색으로 전달
-    return DOCUMENT
+    return "fail"
 
 
-def route_after_retrieve(state: RAGState) -> str:
-    """
-    검색 성공 여부에 따라 분기합니다.
-    """
+# ===================================================
+# 3. 검증 결과에 따라 이동할 곳 결정
+# ===================================================
 
-    return "ok" if state.get("retrieval_ok") else "empty"
-
-
-def route_after_verify(state: RAGState) -> str:
-    """
-    검증 결과에 따라 종료 또는 재생성으로 분기합니다.
-    """
+def route_verify(state):
 
     grade = state.get("grade", "retry")
 
-    # 검증 통과
+
+    # 답변이 정상
     if grade == "pass":
         return "done"
 
-    # Verifier가 명시적으로 포기
+
+    # 더 이상 진행할 수 없음
     if grade == "giveup":
         return "giveup"
 
-    # 최대 재시도 횟수 초과
+
+    # 재시도 횟수를 모두 사용함
     if state.get("retries", 0) >= MAX_RETRY:
         return "giveup"
 
-    # 그 외에는 재생성
-    return "regenerate"
+
+    # 다시 답변 생성
+    return "retry"
 
 
 # ===================================================
-# 그래프 조립
+# 그래프 만들기
 # ===================================================
 
 def build_graph():
-    g = StateGraph(RAGState)
+
+    graph = StateGraph(RAGState)
+
 
     # ------------------------------------------------
-    # 분류 노드
+    # 노드 등록
     # ------------------------------------------------
 
-    g.add_node("classify", classifier_node)
-    g.add_node("greeting", greeting_node)
-    g.add_node("calc", calc_node)
-    g.add_node("scope", scope_node)
+    graph.add_node("classify", classifier_node)
+
+    graph.add_node("greeting", greeting_node)
+    graph.add_node("calc", calc_node)
+    graph.add_node("scope", scope_node)
+
+    graph.add_node("retrieve", retriever_node)
+    graph.add_node("generate", generator_node)
+    graph.add_node("verify", verifier_node)
+
+    graph.add_node("bump", bump_node)
+    graph.add_node("fallback", fallback_node)
+
 
     # ------------------------------------------------
-    # 기존 RAG 노드
+    # 시작
     # ------------------------------------------------
 
-    g.add_node("retrieve", retriever_node)
-    g.add_node("generate", generator_node)
-    g.add_node("verify", verifier_node)
-    g.add_node("bump", bump_node)
-    g.add_node("fallback", fallback_node)
+    graph.add_edge(START, "classify")
+
 
     # ------------------------------------------------
-    # 시작 → 분류
+    # 질문 종류에 따라 분기
     # ------------------------------------------------
 
-    g.add_edge(START, "classify")
-
-    # ------------------------------------------------
-    # 분류 결과에 따른 분기
-    # ------------------------------------------------
-
-    g.add_conditional_edges(
+    graph.add_conditional_edges(
         "classify",
-        route_by_intent,
+        route_intent,
         {
-            GREETING: "greeting",
-            CALC: "calc",
-            SCOPE: "scope",
-            DOCUMENT: "retrieve",
-        },
+            "greeting": "greeting",
+            "calc": "calc",
+            "scope": "scope",
+            "document": "retrieve"
+        }
     )
 
-    # ------------------------------------------------
-    # 단축 경로 → 바로 종료
-    # ------------------------------------------------
-
-    g.add_edge("greeting", END)
-    g.add_edge("calc", END)
-    g.add_edge("scope", END)
 
     # ------------------------------------------------
-    # 기존 RAG 흐름
+    # 간단한 질문은 바로 종료
     # ------------------------------------------------
 
-    # 검색 결과에 따른 분기
-    g.add_conditional_edges(
+    graph.add_edge("greeting", END)
+    graph.add_edge("calc", END)
+    graph.add_edge("scope", END)
+
+
+    # ------------------------------------------------
+    # 문서 검색 결과 확인
+    # ------------------------------------------------
+
+    graph.add_conditional_edges(
         "retrieve",
-        route_after_retrieve,
+        route_retrieve,
         {
-            "ok": "generate",
-            "empty": "fallback",
-        },
+            "success": "generate",
+            "fail": "fallback"
+        }
     )
 
-    # 생성 → 검증
-    g.add_edge("generate", "verify")
 
-    # 검증 결과에 따른 분기
-    g.add_conditional_edges(
+    # ------------------------------------------------
+    # 답변 생성 후 검증
+    # ------------------------------------------------
+
+    graph.add_edge("generate", "verify")
+
+
+    # ------------------------------------------------
+    # 검증 결과에 따라 분기
+    # ------------------------------------------------
+
+    graph.add_conditional_edges(
         "verify",
-        route_after_verify,
+        route_verify,
         {
             "done": END,
-            "giveup": "fallback",
-            "regenerate": "bump",
-        },
+            "retry": "bump",
+            "giveup": "fallback"
+        }
     )
 
-    # 재시도 횟수 증가 → 다시 생성
-    g.add_edge("bump", "generate")
 
-    # 검색 실패 또는 검증 포기
-    g.add_edge("fallback", END)
+    # ------------------------------------------------
+    # 재시도
+    # ------------------------------------------------
 
-    return g.compile()
+    graph.add_edge("bump", "generate")
+
+
+    # ------------------------------------------------
+    # 실패 안내 후 종료
+    # ------------------------------------------------
+
+    graph.add_edge("fallback", END)
+
+
+    return graph.compile()
 
 
 # ===================================================
-# 그래프 실행 객체
+# 그래프 생성
 # ===================================================
 
 app = build_graph()
 
 
 # ===================================================
-# 외부 호출 함수
+# 질문 실행 함수
 # ===================================================
 
-def ask(question: str, verbose: bool = False) -> dict:
-    final = app.invoke(
-        make_initial_state(question),
-        {
-            "recursion_limit": 25
-        },
+def ask(question):
+
+    # 초기 State 만들기
+    state = make_initial_state(question)
+
+    # 그래프 실행
+    result = app.invoke(
+        state,
+        {"recursion_limit": 25}
     )
 
-    if verbose:
-        print(f"\nQ: {question}")
-
-        for line in final.get("log", []):
-            print(f"   · {line}")
-
-    return {
-        "answer": final.get("answer", ""),
-        "sources": [
-            {
-                "file": d.metadata.get("filename"),
-                "page": d.metadata.get("page_no"),
-            }
-            for d in final.get("documents", [])
-        ],
-        "intent": final.get("intent", ""),
-        "grade": final.get("grade", ""),
-        "reason": final.get("reason", ""),
-        "retries": final.get("retries", 0),
-        "verified": final.get("grade") == "pass",
-        "log": final.get("log", []),
-        "ok": True,
-    }
+    return result
 
 
 # ===================================================
-# 직접 실행 테스트
+# 직접 실행
 # ===================================================
 
 if __name__ == "__main__":
-    print(app.get_graph().draw_ascii())
 
-    test_questions = [
+    questions = [
         "안녕하세요",
         "10 + 20",
         "오늘 날씨 어때요?",
         "환불은 며칠 이내에 신청해야 하나요?",
-        "대표이사가 누구인가요?",
+        "대표이사가 누구인가요?"
     ]
 
-    for q in test_questions:
-        result = ask(q, verbose=True)
 
-        print(f"   A: {result['answer'][:70]}")
-        print(f"   의도={result['intent']}")
-        print(
-            f"   판정={result['grade']} "
-            f"재시도={result['retries']}회 "
-            f"검증통과={result['verified']}"
-        )
+    for question in questions:
+
+        print("\n===================================")
+        print("질문:", question)
+
+        result = ask(question)
+
+        print("답변:", result.get("answer", ""))
+        print("분류:", result.get("intent", ""))
+        print("판정:", result.get("grade", ""))
+        print("재시도:", result.get("retries", 0))

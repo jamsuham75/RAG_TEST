@@ -1,24 +1,43 @@
+# ===================================================
+# 30차시 - Query Rewrite + 재검색
+# src/30/graph30.py
+# ===================================================
+
 import os
 import sys
+import warnings
 
 
 # ===================================================
-# 모듈 경로 설정
+# 경로 설정
 # ===================================================
 
-BASE_DIR = os.path.dirname(__file__)
+# 현재 폴더
+# C:\REG_TEST\src\30
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "18"))
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "19"))
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "24"))
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "25"))
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "26"))
-sys.path.insert(0, os.path.join(BASE_DIR, "..", "29"))
+# 상위 src 폴더
+# C:\REG_TEST\src
+SRC_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+
+warnings.filterwarnings("ignore")
+
+# src/config.py 사용
+sys.path.insert(0, SRC_DIR)
+
+# 이전 차시 모듈 사용
+for folder in ["18", "19", "24", "25", "26", "29"]:
+    sys.path.insert(
+        0,
+        os.path.join(SRC_DIR, folder)
+    )
 
 
 # ===================================================
 # Import
 # ===================================================
+
+import config
 
 from langgraph.graph import StateGraph, START, END
 
@@ -31,20 +50,19 @@ from verifier import verifier_node
 from fallback import fallback_node
 
 from classifier import classifier_node
+
 from intents import (
     greeting_node,
     calc_node,
     scope_node,
 )
 
-# 30차시에서 추가
+# 같은 30 폴더에 있음
 from rewriter import rewrite_node
-
-import config
 
 
 # ===================================================
-# 재시도 / 재작성 상한
+# 설정
 # ===================================================
 
 MAX_RETRY = getattr(config, "MAX_RETRY", 2)
@@ -52,375 +70,252 @@ MAX_REWRITE = getattr(config, "MAX_REWRITE", 2)
 
 
 # ===================================================
-# 재시도 횟수 증가 노드
+# 재생성 횟수 증가
 # ===================================================
 
-def bump_node(state: RAGState) -> dict:
+def bump_node(state):
+
     n = state.get("retries", 0) + 1
 
     return {
         "retries": n,
-        "log": [f"재시도 {n}회차 진입"],
+        "log": [f"재생성 {n}회"]
     }
 
 
 # ===================================================
-# 분류 결과 상수
+# 1. 질문 유형 분기
 # ===================================================
 
-GREETING = "greeting"
-CALC = "calc"
-SCOPE = "scope"
-DOCUMENT = "document"
+def route_intent(state):
 
+    intent = state.get("intent", "document")
 
-# ===================================================
-# 라우팅 함수
-# ===================================================
+    if intent == "greeting":
+        return "greeting"
 
-def route_by_intent(state: RAGState) -> str:
-    """
-    분류 결과에 따라 다음 노드를 결정합니다.
-    """
+    if intent == "calc":
+        return "calc"
 
-    intent = state.get("intent", DOCUMENT)
+    if intent == "scope":
+        return "scope"
 
-    if intent in (GREETING, CALC, SCOPE):
-        return intent
-
-    # 알 수 없는 값이나 document는 RAG 검색으로 전달
-    return DOCUMENT
+    return "document"
 
 
 # ===================================================
-# Retriever 이후 라우팅
+# 2. 검색 후 분기
 # ===================================================
 
-def route_after_retrieve(state: RAGState) -> str:
-    """
-    검색 성공 여부와 실패 이유에 따라 분기합니다.
-
-    성공
-        → generate
-
-    검색 품질 부족
-        → rewrite
-
-    재작성 상한 도달 또는 복구 불가능한 검색 오류
-        → fallback
-    """
+def route_retrieve(state):
 
     # 검색 성공
     if state.get("retrieval_ok"):
-        return "ok"
+        return "generate"
 
-    # -----------------------------------------------
-    # 재작성 횟수 상한 확인
-    # -----------------------------------------------
-
+    # 재작성 횟수 초과
     if state.get("rewrites", 0) >= MAX_REWRITE:
-        return "giveup"
+        return "fallback"
 
-    # -----------------------------------------------
-    # 검색은 수행됐지만 적절한 근거를 확보하지 못한 경우
-    # → 질의를 바꿔 다시 검색
-    # -----------------------------------------------
+    # 검색 결과는 있지만 점수가 낮음
+    if state.get("fail_reason") in ("low_score", ""):
+        return "rewrite"
 
-    fail_reason = state.get("fail_reason", "")
-
-    if fail_reason in ("low_score", ""):
-        return "research"
-
-    # -----------------------------------------------
-    # search_error, no_result 등
-    # 재작성으로 해결하기 어렵다고 판단
-    # -----------------------------------------------
-
-    return "giveup"
+    # 검색 오류 등
+    return "fallback"
 
 
 # ===================================================
-# Verifier 이후 라우팅
+# 3. 검증 후 분기
 # ===================================================
 
-def route_after_verify(state: RAGState) -> str:
-    """
-    검증 결과에 따라 다음 행동을 결정합니다.
-
-    pass
-        → 종료
-
-    retry
-        → 같은 근거로 다시 생성
-
-    research
-        → 질의를 재작성하고 다시 검색
-
-    giveup
-        → fallback
-    """
+def route_verify(state):
 
     grade = state.get("grade", "retry")
 
-    # -----------------------------------------------
     # 검증 성공
-    # -----------------------------------------------
-
     if grade == "pass":
-        return "done"
+        return "end"
 
-    # -----------------------------------------------
-    # Verifier가 명시적으로 포기
-    # -----------------------------------------------
-
+    # 더 이상 진행하지 않음
     if grade == "giveup":
-        return "giveup"
+        return "fallback"
 
-    # -----------------------------------------------
-    # 근거 자체가 부족한 경우
-    # → 재생성이 아니라 재검색
-    # -----------------------------------------------
-
+    # 근거가 부족함
+    # → 검색어를 바꿔 다시 검색
     if grade == "research":
 
-        # 재작성 상한 확인
         if state.get("rewrites", 0) >= MAX_REWRITE:
-            return "giveup"
+            return "fallback"
 
-        return "research"
+        return "rewrite"
 
-    # -----------------------------------------------
-    # 같은 근거로 답변을 다시 생성할 수 있는 경우
-    # -----------------------------------------------
-
+    # 답변만 다시 만들어 보면 되는 경우
     if state.get("retries", 0) >= MAX_RETRY:
-        return "giveup"
+        return "fallback"
 
-    return "regenerate"
-
-
-# ===================================================
-# Rewrite 이후 라우팅
-# ===================================================
-
-def route_after_rewrite(state: RAGState) -> str:
-    """
-    Rewrite 결과를 확인합니다.
-
-    정상적으로 새로운 질의가 만들어졌으면
-        → retrieve
-
-    재작성에 실패했으면
-        → fallback
-    """
-
-    query = state.get("query", "")
-    tried = state.get("tried_queries", [])
-
-    # query가 없으면 재작성 실패
-    if not query:
-        return "giveup"
-
-    # 정상적인 경우 다시 검색
-    #
-    # rewrite_node가 성공하면 새로운 query를 만들고
-    # tried_queries에도 추가한다.
-    if query in tried:
-        return "retry_search"
-
-    return "giveup"
+    return "retry"
 
 
 # ===================================================
-# 그래프 조립
+# 그래프 생성
 # ===================================================
 
 def build_graph():
 
     g = StateGraph(RAGState)
 
-    # ------------------------------------------------
-    # 분류 노드
-    # ------------------------------------------------
+
+    # -------------------------------------------------
+    # 노드 등록
+    # -------------------------------------------------
 
     g.add_node("classify", classifier_node)
+
     g.add_node("greeting", greeting_node)
     g.add_node("calc", calc_node)
     g.add_node("scope", scope_node)
 
-    # ------------------------------------------------
-    # RAG 노드
-    # ------------------------------------------------
-
     g.add_node("retrieve", retriever_node)
+    g.add_node("rewrite", rewrite_node)
     g.add_node("generate", generator_node)
     g.add_node("verify", verifier_node)
+
     g.add_node("bump", bump_node)
     g.add_node("fallback", fallback_node)
 
-    # ------------------------------------------------
-    # 30차시 추가
-    # ------------------------------------------------
 
-    g.add_node("rewrite", rewrite_node)
-
-
-    # =================================================
+    # -------------------------------------------------
     # START → classify
-    # =================================================
+    # -------------------------------------------------
 
     g.add_edge(START, "classify")
 
 
-    # =================================================
-    # classify → 의도별 분기
-    # =================================================
+    # -------------------------------------------------
+    # 질문 유형 분기
+    # -------------------------------------------------
 
     g.add_conditional_edges(
         "classify",
-        route_by_intent,
+        route_intent,
         {
-            GREETING: "greeting",
-            CALC: "calc",
-            SCOPE: "scope",
-            DOCUMENT: "retrieve",
-        },
+            "greeting": "greeting",
+            "calc": "calc",
+            "scope": "scope",
+            "document": "retrieve",
+        }
     )
-
-
-    # =================================================
-    # 단축 경로 → END
-    # =================================================
 
     g.add_edge("greeting", END)
     g.add_edge("calc", END)
     g.add_edge("scope", END)
 
 
-    # =================================================
-    # retrieve 이후 분기
-    # =================================================
-    #
-    #                ┌─ 성공 ─────────→ generate
-    #                │
-    # retrieve ──────┼─ 검색 품질 부족 → rewrite
-    #                │
-    #                └─ 복구 불가 ─────→ fallback
-    #
+    # -------------------------------------------------
+    # Retriever 결과
+    # -------------------------------------------------
 
     g.add_conditional_edges(
         "retrieve",
-        route_after_retrieve,
+        route_retrieve,
         {
-            "ok": "generate",
+            "generate": "generate",
 
-            # ★ 30차시
-            "research": "rewrite",
+            # ★ 검색 실패
+            "rewrite": "rewrite",
 
-            "giveup": "fallback",
-        },
+            "fallback": "fallback",
+        }
     )
 
 
-    # =================================================
-    # generate → verify
-    # =================================================
+    # -------------------------------------------------
+    # ★ Rewrite 후 다시 검색
+    # -------------------------------------------------
 
-    g.add_edge("generate", "verify")
+    g.add_edge(
+        "rewrite",
+        "retrieve"
+    )
 
 
-    # =================================================
-    # verify 이후 분기
-    # =================================================
-    #
-    #                ┌─ pass ───────→ END
-    #                │
-    # verify ────────┼─ retry ──────→ bump
-    #                │
-    #                ├─ research ───→ rewrite
-    #                │
-    #                └─ giveup ─────→ fallback
-    #
+    # -------------------------------------------------
+    # 생성 → 검증
+    # -------------------------------------------------
+
+    g.add_edge(
+        "generate",
+        "verify"
+    )
+
+
+    # -------------------------------------------------
+    # 검증 결과 분기
+    # -------------------------------------------------
 
     g.add_conditional_edges(
         "verify",
-        route_after_verify,
+        route_verify,
         {
-            "done": END,
+            # 정상 종료
+            "end": END,
 
-            # 같은 근거로 답변 다시 생성
-            "regenerate": "bump",
+            # 같은 근거로 다시 생성
+            "retry": "bump",
 
-            # ★ 30차시
-            # 근거가 부족하면 질의부터 다시 작성
-            "research": "rewrite",
+            # 검색어를 바꿔 다시 검색
+            "rewrite": "rewrite",
 
-            "giveup": "fallback",
-        },
+            # 포기
+            "fallback": "fallback",
+        }
     )
 
 
-    # =================================================
-    # 재생성 루프
-    # =================================================
-    #
-    # bump → generate → verify
-    #
+    # -------------------------------------------------
+    # 재생성
+    # -------------------------------------------------
 
-    g.add_edge("bump", "generate")
-
-
-    # =================================================
-    # ★ 30차시: 재검색 루프
-    # =================================================
-    #
-    # rewrite → retrieve
-    #
-    # query를 변경한 뒤 새로운 검색 수행
-    #
-
-    g.add_conditional_edges(
-        "rewrite",
-        route_after_rewrite,
-        {
-            "retry_search": "retrieve",
-            "giveup": "fallback",
-        },
+    g.add_edge(
+        "bump",
+        "generate"
     )
 
 
-    # =================================================
-    # fallback → END
-    # =================================================
+    # -------------------------------------------------
+    # Fallback
+    # -------------------------------------------------
 
-    g.add_edge("fallback", END)
+    g.add_edge(
+        "fallback",
+        END
+    )
 
-
-    # =================================================
-    # 그래프 컴파일
-    # =================================================
 
     return g.compile()
 
 
 # ===================================================
-# 그래프 실행 객체
+# 그래프 컴파일
 # ===================================================
 
 app = build_graph()
 
 
 # ===================================================
-# 외부 호출 함수
+# 외부에서 호출
 # ===================================================
 
-def ask(question: str, verbose: bool = False) -> dict:
+def ask(question, verbose=False):
+
+    state = make_initial_state(question)
 
     final = app.invoke(
-        make_initial_state(question),
+        state,
         {
             "recursion_limit": 25
-        },
+        }
     )
 
     if verbose:
@@ -428,11 +323,25 @@ def ask(question: str, verbose: bool = False) -> dict:
         print(f"\nQ: {question}")
 
         for line in final.get("log", []):
-            print(f"   · {line}")
+            print("  ·", line)
 
     return {
-
         "answer": final.get("answer", ""),
+
+        "intent": final.get("intent", ""),
+
+        "grade": final.get("grade", ""),
+
+        "reason": final.get("reason", ""),
+
+        "retries": final.get("retries", 0),
+
+        "rewrites": final.get("rewrites", 0),
+
+        "tried_queries": final.get(
+            "tried_queries",
+            []
+        ),
 
         "sources": [
             {
@@ -442,26 +351,7 @@ def ask(question: str, verbose: bool = False) -> dict:
             for d in final.get("documents", [])
         ],
 
-        "intent": final.get("intent", ""),
-
-        "grade": final.get("grade", ""),
-
-        "reason": final.get("reason", ""),
-
-        # 재생성 횟수
-        "retries": final.get("retries", 0),
-
-        # ★ 30차시: 재검색을 위한 질의 재작성 횟수
-        "rewrites": final.get("rewrites", 0),
-
-        # ★ 어떤 검색어들이 사용되었는지 확인
-        "tried_queries": final.get("tried_queries", []),
-
-        "verified": final.get("grade") == "pass",
-
-        "log": final.get("log", []),
-
-        "ok": True,
+        "log": final.get("log", [])
     }
 
 
@@ -471,35 +361,36 @@ def ask(question: str, verbose: bool = False) -> dict:
 
 if __name__ == "__main__":
 
-    print(app.get_graph().draw_ascii())
-
-    test_questions = [
+    questions = [
         "안녕하세요",
         "10 + 20",
         "오늘 날씨 어때요?",
         "환불은 며칠 이내에 신청해야 하나요?",
+        "반품하고 싶은데 언제까지 가능해요?",
         "대표이사가 누구인가요?",
     ]
 
-    for q in test_questions:
+    for q in questions:
 
         result = ask(q, verbose=True)
 
-        print(f"   A: {result['answer'][:70]}")
-
-        print(f"   의도={result['intent']}")
+        print("A:", result["answer"])
 
         print(
-            f"   판정={result['grade']} "
-            f"재생성={result['retries']}회 "
-            f"재작성={result['rewrites']}회 "
-            f"검증통과={result['verified']}"
+            "재생성:",
+            result["retries"],
+            "회"
         )
 
-        # Rewrite가 발생했는지 확인하기 좋음
-        if result["tried_queries"]:
-            print(
-                f"   검색 질의="
-                f"{' → '.join(result['tried_queries'])}"
-            )
+        print(
+            "재작성:",
+            result["rewrites"],
+            "회"
+        )
 
+        print(
+            "검색어:",
+            result["tried_queries"]
+        )
+
+        print("-" * 60)

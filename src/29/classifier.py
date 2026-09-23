@@ -1,123 +1,157 @@
 import os
 import sys
-import warnings
+import re
 
+# ============================================================
+# 다른 차시의 파일을 import하기 위한 경로 설정
+# ============================================================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
-warnings.filterwarnings("ignore")
 
 sys.path.insert(0, SRC_DIR)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '25'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '13'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '24'))
+sys.path.insert(0, os.path.join(CURRENT_DIR, "..", "25"))
+sys.path.insert(0, os.path.join(CURRENT_DIR, "..", "13"))
+sys.path.insert(0, os.path.join(CURRENT_DIR, "..", "24"))
 
-import json, re
+
 import config
-from generator import build_context, _llm
-
+from generator import _llm
 from prompts import CLASSIFY_PROMPT
 from langchain_core.output_parsers import StrOutputParser
 
+
+# ============================================================
+# 분류에 사용할 단어들
+# ============================================================
 
 GREETING_WORDS = [
     "안녕", "반가", "하이", "헬로",
     "고마", "감사", "수고", "잘 부탁"
 ]
 
-CALC_PATTERN = re.compile(
-    r"^[\d\s+\-*/().,]+[=?]?$"
-)
-
-OUT_OF_SCOPE = [
-    "날씨", "주가", "환율", "로또", "뉴스",
-    "맛집", "영화", "축구"
+OUT_OF_SCOPE_WORDS = [
+    "날씨", "주가", "환율", "로또",
+    "뉴스", "맛집", "영화", "축구"
 ]
 
-
-def _has_any(text, words):
-    """목록의 단어 중 하나라도 포함되어 있으면 True"""
-    for w in words:
-        if w in text:
-            return True
-    return False
+CALC_PATTERN = re.compile(r"^[\d\s+\-*/().,]+[=?]?$")
 
 
-def _rule_classify(q: str) -> str:
-    text = q.strip()
+# ============================================================
+# 1차 분류 : 규칙으로 판단
+# ============================================================
 
-    if not text:
+def rule_classify(question):
+
+    question = question.strip()
+
+
+    # 질문이 비어 있는 경우
+    if question == "":
         return "scope"
 
-    # 1차 분류: 짧은 인사말
-    if len(text) <= 20 and _has_any(text, GREETING_WORDS):
-        return "greeting"
 
-    # 1차 분류: 순수 계산식
-    has_op = False
+    # ---------------------------------------------
+    # 1. 인사말인지 확인
+    # ---------------------------------------------
+    if len(question) <= 20:
+
+        for word in GREETING_WORDS:
+            if word in question:
+                return "greeting"
+
+
+    # ---------------------------------------------
+    # 2. 계산식인지 확인
+    # ---------------------------------------------
+    has_operator = False
 
     for op in "+-*/":
-        if op in text:
-            has_op = True
+        if op in question:
+            has_operator = True
             break
 
-    if CALC_PATTERN.match(text) and has_op:
+    if CALC_PATTERN.match(question) and has_operator:
         return "calc"
 
-    # 1차 분류: 문서 범위 밖 주제
-    if _has_any(text, OUT_OF_SCOPE):
-        return "scope"
 
-    # 판단하지 못함 → LLM으로 전달
-    return ""
-
-
-# 2차 LLM 분류 체인
-_classify_chain = CLASSIFY_PROMPT | _llm | StrOutputParser()
-
-VALID = {
-    "greeting",
-    "calc",
-    "scope",
-    "document"
-}
+    # ---------------------------------------------
+    # 3. 문서 범위 밖 질문인지 확인
+    # ---------------------------------------------
+    for word in OUT_OF_SCOPE_WORDS:
+        if word in question:
+            return "scope"
 
 
-def classifier_node(state) -> dict:
-    q = state.get("question", "")
+    # 규칙으로 판단하지 못함
+    return None
 
-    # 1차: 규칙 기반 분류
-    intent = _rule_classify(q)
 
-    if intent:
+# ============================================================
+# 2차 분류 : LLM 사용
+# ============================================================
+
+classify_chain = CLASSIFY_PROMPT | _llm | StrOutputParser()
+
+
+# ============================================================
+# LangGraph에서 사용하는 분류 노드
+# ============================================================
+
+def classifier_node(state):
+
+    question = state.get("question", "")
+
+
+    # --------------------------------------------------------
+    # 1단계 : 규칙으로 분류
+    # --------------------------------------------------------
+    intent = rule_classify(question)
+
+    if intent is not None:
         return {
             "intent": intent,
             "log": [f"분류(규칙): {intent}"]
         }
 
-    # LLM 분류를 사용하지 않는 경우
-    if not getattr(config, "USE_LLM_CLASSIFY", False):
+
+    # --------------------------------------------------------
+    # 2단계 : LLM 분류를 사용하지 않는 경우
+    # --------------------------------------------------------
+    if config.USE_LLM_CLASSIFY == False:
+
         return {
             "intent": "document",
             "log": ["분류: 기본값 document"]
         }
 
-    # 2차: LLM 분류
+
+    # --------------------------------------------------------
+    # 3단계 : LLM에게 분류 요청
+    # --------------------------------------------------------
     try:
-        raw = _classify_chain.invoke({
-            "question": q
-        }).strip().lower()
 
-        intent = raw if raw in VALID else "document"
+        result = classify_chain.invoke({
+            "question": question
+        })
 
-    except Exception as e:
+        intent = result.strip().lower()
+
+
+        # 이상한 결과가 나오면 document로 처리
+        if intent not in [
+            "greeting",
+            "calc",
+            "scope",
+            "document"
+        ]:
+            intent = "document"
+
+
+    except Exception:
+
         intent = "document"
 
-        return {
-            "intent": intent,
-            "log": [
-                f"분류 오류({type(e).__name__}) -> document"
-            ]
-        }
 
     return {
         "intent": intent,
