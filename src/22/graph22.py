@@ -22,7 +22,7 @@ def build_graph():
     g.add_node("retrieve", retrieve_node)
     g.add_node("generate", generate_node)
     g.add_node("fallback", fallback_node)
-    
+
     g.add_edge(START, "retrieve")
     g.add_conditional_edges(
         "retrieve", route_after_retrieve,
@@ -41,33 +41,33 @@ def build_graph():
 
 app = build_graph()
 
-# def ask(question: str) -> dict:
-#     # 15차시 ask()와 같은 인터페이스를 유지한다     
-#     final = app.invoke(make_initial_state(question),                        
-#                        {"recursion_limit": 20})     
-#     return {
-#         "answer":  final["answer"],
-#        "sources": [
-#                 {
-#                     "file": (
-#                         d.metadata.get("filename")
-#                         or d.metadata.get("file_name")
-#                         or d.metadata.get("source")
-#                         or "unknown"
-#                     ),
-#                     "page": (
-#                         d.metadata.get("page_no")
-#                         or d.metadata.get("page")
-#                         or d.metadata.get("pageno")
-#                         or "?"
-#                     ),
-#                 }
-#                 for d in final.get("documents", [])
-#             ],
-#         "cited":   final.get("has_citation", False),
-#         "log":     final.get("log", []),
-#         "ok":      True,
-#     }
+def ask(question: str) -> dict:
+    # 15차시 ask()와 같은 인터페이스를 유지한다     
+    final = app.invoke(make_initial_state(question),                        
+                       {"recursion_limit": 20})     
+    return {
+        "answer":  final["answer"],
+       "sources": [
+                {
+                    "file": (
+                        d.metadata.get("filename")
+                        or d.metadata.get("file_name")
+                        or d.metadata.get("source")
+                        or "unknown"
+                    ),
+                    "page": (
+                        d.metadata.get("page_no")
+                        or d.metadata.get("page")
+                        or d.metadata.get("pageno")
+                        or "?"
+                    ),
+                }
+                for d in final.get("documents", [])
+            ],
+        "cited":   final.get("has_citation", False),
+        "log":     final.get("log", []),
+        "ok":      True,
+    }
     
 if __name__ == "__main__":
     print(app.get_graph().draw_ascii())

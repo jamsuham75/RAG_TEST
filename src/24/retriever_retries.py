@@ -46,7 +46,7 @@ def retriever_node(state) -> dict:
 
     if floor is None:
         floor = max(
-            0.30,
+            0.0,
             config.MIN_SCORE - retries * 0.05
         )
     
@@ -85,19 +85,18 @@ def retriever_node(state) -> dict:
     }
     
 if __name__ == "__main__":
-    CASES = [
-        {"query": "환불은 며칠 이내인가요?"},          # 정상
-        {"query": "반품하고 싶은데 언제까지?"},        # 표현 차이
-        {"query": "대표이사가 누구인가요?"},           # 없는 내용
-        {"query": ""},                                # 빈 질의
-        {"query": "환불 규정", "top_k": 10},          # k 확대
-        {"query": "환불과 교환 차이", "search_type": "mmr"},
-    ]
-    
-    for c in CASES:
-        r = retriever_node(c)
-        print(f"\nQ: {c['query'] or '(빈 질의)'}")         
-        print(f"   통과 {len(r['documents'])}건 | "
-              f"ok={r['retrieval_ok']} | "
-              f"사유={r['fail_reason'] or '-'}")
-        print(f"   점수: {r['scores'][:5]}")
+    query = "환불은 며칠 이내인가요?"
+
+    for retries in range(3):
+        state = {
+            "query": query,
+            "retries": retries
+        }
+
+        result = retriever_node(state)
+
+        print(
+            f"retries={retries} | "
+            f"ok={result['retrieval_ok']} | "
+            f"사유={result['fail_reason'] or '-'}"
+        )
