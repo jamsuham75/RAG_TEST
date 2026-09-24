@@ -1,71 +1,195 @@
+# ============================================================
+# diagnose.py
+# RAG에서 답변이 틀렸을 때 검색 문제인지 생성 문제인지 확인합니다.
+# 검색 결과, 점수, 통과 문서, 최종 답변을 순서대로 출력합니다.
+# ============================================================
+
 import os
 import sys
-import warnings
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '10'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '11'))
+
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+
+
+# ------------------------------------------------------------
+# 이전 차시의 indexer.py, retriever.py를 찾을 수 있도록 경로를 추가합니다.
+# ------------------------------------------------------------
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+CH10_DIR = os.path.join(CURRENT_DIR, "..", "10")
+CH11_DIR = os.path.join(CURRENT_DIR, "..", "11")
+
+sys.path.insert(0, CH10_DIR)
+sys.path.insert(0, CH11_DIR)
+
+
+# ------------------------------------------------------------
+# 이전 차시에서 만든 기능을 가져옵니다.
+# ------------------------------------------------------------
 
 from indexer import get_store
 from retriever import build_context, MIN_SCORE
 
-from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
 
+# ------------------------------------------------------------
+# 환경 변수와 RAG 실행에 필요한 객체를 준비합니다.
+# ------------------------------------------------------------
+
+# .env 파일에서 OpenAI API 키를 읽습니다.
 load_dotenv()
 
+# 저장된 벡터 DB를 불러옵니다.
 store = get_store()
 
-llm   = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+# 검색된 문서를 바탕으로 답변을 생성할 LLM입니다.
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
+
+
+# ============================================================
+# 질문 하나를 상세하게 진단합니다.
+# ============================================================
 
 def diagnose(question, k=3):
+
     print("=" * 60)
     print("Q:", question)
+
+    # --------------------------------------------------------
+    # 1. 질문과 관련된 문서 조각을 검색합니다.
+    # --------------------------------------------------------
+
     pairs = store.similarity_search_with_relevance_scores(
-        question, k=k)
-    
-    # ── 검색 단계 진단 ──
+        question,
+        k=k
+    )
+
+    # 검색 결과가 하나도 없으면 여기서 종료합니다.
     if not pairs:
         print("→ 【검색 실패】 결과가 0건입니다")
         return
-    # 기준(MIN_SCORE)을 넘는 것만 골라 담기
+
+
+    # --------------------------------------------------------
+    # 2. 검색 점수가 기준 이상인 문서만 골라냅니다.
+    # --------------------------------------------------------
+
     passed = []
-    for d, s in pairs:
-        if s >= MIN_SCORE:
-            passed.append((d, s))
-    print(f"검색 {len(pairs)}개 / 기준 통과 {len(passed)}개")
+
+    for document, score in pairs:
+
+        # 검색 점수가 최소 기준 이상이면 사용합니다.
+        if score >= MIN_SCORE:
+            passed.append((document, score))
+
+
+    # 검색 결과 개수와 기준 통과 개수를 출력합니다.
+    print(
+        f"검색 {len(pairs)}개 / "
+        f"기준 통과 {len(passed)}개"
+    )
+
     print("-" * 60)
-    
-    for i, (d, s) in enumerate(pairs, 1):
-        mark = "✓" if s >= MIN_SCORE else "✗"
-        text = d.page_content[:70].replace("\n", " ")
-        print(f"{mark} [{i}] {s:.3f} p.{d.metadata['page_no']}  {text}...")     
-    
+
+
+    # --------------------------------------------------------
+    # 3. 검색된 문서의 점수와 내용을 화면에 보여줍니다.
+    # --------------------------------------------------------
+
+    for index, (document, score) in enumerate(pairs, start=1):
+
+        # 기준을 통과했으면 ✓, 아니면 ✗를 표시합니다.
+        if score >= MIN_SCORE:
+            mark = "✓"
+        else:
+            mark = "✗"
+
+        # 문서 내용은 앞부분 70자만 보여줍니다.
+        text = document.page_content[:70]
+
+        # 줄바꿈을 공백으로 바꿔 한 줄로 출력합니다.
+        text = text.replace("\n", " ")
+
+        # 문서의 페이지 번호를 가져옵니다.
+        page_no = document.metadata["page_no"]
+
+        # 검색 결과를 출력합니다.
+        print(
+            f"{mark} [{index}] "
+            f"{score:.3f} "
+            f"p.{page_no} "
+            f"{text}..."
+        )
+
+
+    # --------------------------------------------------------
+    # 4. 기준을 통과한 문서가 없으면 검색 실패입니다.
+    # --------------------------------------------------------
+
     if not passed:
         print("\n→ 【검색 실패】 기준을 넘는 조각이 없습니다")
         return
-    
-    # ── 생성 단계 ──
+
+
+    # --------------------------------------------------------
+    # 5. 점수는 빼고 Document 객체만 따로 모읍니다.
+    # --------------------------------------------------------
+
     docs = []
-    for d, s in passed:
-        docs.append(d)
-        
-    prompt = ("아래 자료만 근거로 답하세요.\n"
-              "자료에 없으면 '자료에서 확인할 수 없습니다'라고 답하세요.\n\n"               
-              f"[자료]\n{build_context(docs)}\n\n[질문] {question}")     
-    
-    answer = llm.invoke(prompt).content
-    
-    print("\nA:", answer)    
+
+    for document, score in passed:
+        docs.append(document)
+
+
+    # --------------------------------------------------------
+    # 6. 검색된 문서를 LLM에게 전달할 프롬프트를 만듭니다.
+    # --------------------------------------------------------
+
+    context = build_context(docs)
+
+    prompt = (
+        "아래 자료만 근거로 답하세요.\n"
+        "자료에 없으면 "
+        "'자료에서 확인할 수 없습니다'라고 답하세요.\n\n"
+        f"[자료]\n{context}\n\n"
+        f"[질문] {question}"
+    )
+
+
+    # --------------------------------------------------------
+    # 7. LLM에게 질문하고 답변을 받습니다.
+    # --------------------------------------------------------
+
+    response = llm.invoke(prompt)
+
+    answer = response.content
+
+
+    # --------------------------------------------------------
+    # 8. 최종 답변과 진단 기준을 출력합니다.
+    # --------------------------------------------------------
+
+    print("\nA:", answer)
+
     print("\n👉 판단: 위 조각들 안에 정답이 있었는가?")
-    print("   있는데 답이 틀렸다면 → 생성 문제 (13차시)")     
-    print("   없다면              → 검색 문제 (7·11차시)")     
+    print("   있는데 답이 틀렸다면 → 생성 문제 (13차시)")
+    print("   없다면              → 검색 문제 (7·11차시)")
+
     print("=" * 60)
-    
-    # diagnose.py 끝에 추가
+
+
+# ============================================================
+# 이 파일을 직접 실행했을 때만 테스트합니다.
+# ============================================================
 
 if __name__ == "__main__":
-    # 테스트 질문
+
+    # 기본 테스트 질문입니다.
     diagnose("환불은 몇 일이에요?")
-    
-    # 또는 여러 개
+
+    # 필요하면 아래 질문의 주석을 풀어 테스트할 수 있습니다.
     # diagnose("반품은 어떻게 하나요?")
     # diagnose("교환 정책이 뭐에요?")
