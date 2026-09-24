@@ -1,7 +1,8 @@
-# ===================================================
-# graph31.py
-# 31차시 - 방어적 코딩 + 운영 로그
-# ===================================================
+# ============================================================
+# Graph 31 - 방어적 코딩 + 운영 로그
+# 기존 RAG 노드를 safe_node로 안전하게 실행합니다.
+# 오류가 발생해도 그래프를 중단하지 않고 로그를 남깁니다.
+# ============================================================
 
 import os
 import sys
@@ -11,24 +12,20 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-# ===================================================
-# 모듈 경로
-# ===================================================
+# ============================================================
+# 필요한 차시의 모듈 경로를 추가합니다.
+# ============================================================
 
 BASE_DIR = os.path.dirname(__file__)
 
 for folder in ["18", "19", "24", "25", "26", "29", "30"]:
-    sys.path.insert(
-        0,
-        os.path.join(BASE_DIR, "..", folder)
-    )
-
-sys.path.insert(0, BASE_DIR)
+    path = os.path.join(BASE_DIR, "..", folder)
+    sys.path.insert(0, path)
 
 
-# ===================================================
-# import
-# ===================================================
+# ============================================================
+# 필요한 모듈을 가져옵니다.
+# ============================================================
 
 from langgraph.graph import StateGraph, START, END
 
@@ -49,65 +46,97 @@ from logger import log_query
 import config
 
 
-# ===================================================
-# 설정
-# ===================================================
-
-# ===================================================
-# 설정
-# ===================================================
+# ============================================================
+# 최대 재시도 / 재작성 횟수
+# ============================================================
 
 MAX_RETRY = getattr(config, "MAX_RETRY", 2)
 MAX_REWRITE = getattr(config, "MAX_REWRITE", 2)
 
 
-# ===================================================
-# 안전 노드
-# ===================================================
+# ============================================================
+# 안전한 Retriever
+# 검색 중 오류가 발생해도 그래프가 중단되지 않게 합니다.
+# ============================================================
 
 def safe_retriever_node(state):
 
+    # retriever_node를 safe_node를 통해 실행합니다.
     result = safe_node(retriever_node, state)
 
+    # 검색 중 오류가 발생한 경우입니다.
     if result.get("node_error"):
+
+        # 검색 결과를 비웁니다.
         result["documents"] = []
+
+        # 검색 실패 상태로 변경합니다.
         result["retrieval_ok"] = False
+
+        # 검색 시스템 오류임을 기록합니다.
         result["fail_reason"] = "search_error"
 
     return result
 
 
+# ============================================================
+# 안전한 Generator
+# 답변 생성 중 오류가 발생해도 그래프를 계속 실행합니다.
+# ============================================================
+
 def safe_generator_node(state):
 
+    # generator_node를 safe_node를 통해 실행합니다.
     result = safe_node(generator_node, state)
 
+    # 답변 생성 중 오류가 발생한 경우입니다.
     if result.get("node_error"):
+
+        # 생성된 답변이 없음을 표시합니다.
         result["answer"] = ""
+
+        # 정상적인 답변 생성에 실패했음을 표시합니다.
         result["insufficient"] = True
+
+        # 생성 오류를 기록합니다.
         result["gen_error"] = "unknown"
 
     return result
 
 
+# ============================================================
+# 안전한 Verifier
+# 검증 중 오류가 발생해도 전체 서비스를 중단하지 않습니다.
+# ============================================================
+
 def safe_verifier_node(state):
 
+    # verifier_node를 safe_node를 통해 실행합니다.
     result = safe_node(verifier_node, state)
 
+    # 검증 중 오류가 발생한 경우입니다.
     if result.get("node_error"):
+
+        # 그래프는 종료할 수 있도록 pass로 처리합니다.
         result["grade"] = "pass"
+
+        # 실제 검증에는 실패했다는 이유를 기록합니다.
         result["reason"] = "검증 오류 - 통과 처리"
+
+        # 정상 검증이 아니라는 것을 표시합니다.
         result["verified"] = False
 
     return result
 
 
-# ===================================================
-# 재시도 횟수 증가
-# ===================================================
+# ============================================================
+# 재생성 횟수를 1 증가시킵니다.
+# ============================================================
 
 def bump_node(state):
 
-    retries = state.get("retries", 0) + 1
+    retries = state.get("retries", 0)
+    retries = retries + 1
 
     return {
         "retries": retries,
@@ -115,139 +144,174 @@ def bump_node(state):
     }
 
 
-# ===================================================
-# 질문 종류에 따른 분기
-# ===================================================
+# ============================================================
+# 질문 종류에 따라 다음 노드를 결정합니다.
+# ============================================================
 
 def route_by_intent(state):
 
     intent = state.get("intent", "document")
 
+    # 인사 질문입니다.
     if intent == "greeting":
         return "greeting"
 
+    # 계산 질문입니다.
     if intent == "calc":
         return "calc"
 
+    # 서비스 범위 밖의 질문입니다.
     if intent == "scope":
         return "scope"
 
+    # 나머지는 문서 검색으로 보냅니다.
     return "document"
 
 
-# ===================================================
-# 검색 후 분기
-# ===================================================
+# ============================================================
+# 검색 결과에 따라 다음 노드를 결정합니다.
+# ============================================================
 
 def route_after_retrieve(state):
 
-    # 검색 성공
+    # 검색에 성공했으면 답변을 생성합니다.
     if state.get("retrieval_ok"):
         return "ok"
 
-    # 재작성 횟수 초과
-    if state.get("rewrites", 0) >= MAX_REWRITE:
+    # 최대 재작성 횟수에 도달하면 포기합니다.
+    rewrites = state.get("rewrites", 0)
+
+    if rewrites >= MAX_REWRITE:
         return "giveup"
 
+    # 검색 실패 이유를 가져옵니다.
     fail_reason = state.get("fail_reason", "")
 
-    # 검색 자체는 성공했지만 좋은 자료가 없음
-    if fail_reason in ["low_score", ""]:
+    # 자료의 관련도가 낮으면 질문을 바꿔 다시 검색합니다.
+    if fail_reason == "low_score":
         return "research"
 
-    # 검색 시스템 오류
+    # 실패 이유가 없으면 재검색을 시도합니다.
+    if fail_reason == "":
+        return "research"
+
+    # 시스템 오류 등은 재검색하지 않고 포기합니다.
     return "giveup"
 
 
-# ===================================================
-# 검증 후 분기
-# ===================================================
+# ============================================================
+# 검증 결과에 따라 다음 노드를 결정합니다.
+# ============================================================
 
 def route_after_verify(state):
 
     grade = state.get("grade", "retry")
 
-    # 정상 답변
+    # 검증에 통과했으면 종료합니다.
     if grade == "pass":
         return "done"
 
-    # 포기
+    # 더 이상 처리할 수 없으면 포기합니다.
     if grade == "giveup":
         return "giveup"
 
-    # 자료를 다시 검색해야 함
+    # 자료가 부족하면 질문을 바꿔 다시 검색합니다.
     if grade == "research":
 
-        if state.get("rewrites", 0) >= MAX_REWRITE:
+        rewrites = state.get("rewrites", 0)
+
+        # 최대 재작성 횟수에 도달했는지 확인합니다.
+        if rewrites >= MAX_REWRITE:
             return "giveup"
 
         return "research"
 
-    # 같은 자료로 다시 답변 생성
-    if state.get("retries", 0) >= MAX_RETRY:
+    # 현재 재생성 횟수를 가져옵니다.
+    retries = state.get("retries", 0)
+
+    # 최대 재생성 횟수에 도달하면 포기합니다.
+    if retries >= MAX_RETRY:
         return "giveup"
 
+    # 같은 자료로 답변을 다시 생성합니다.
     return "regenerate"
 
 
-# ===================================================
-# 질문 재작성 후 분기
-# ===================================================
+# ============================================================
+# 질문 재작성 결과에 따라 다시 검색할지 결정합니다.
+# ============================================================
 
 def route_after_rewrite(state):
 
+    # 새롭게 작성된 검색어를 가져옵니다.
     query = state.get("query", "")
+
+    # 지금까지 사용한 검색어를 가져옵니다.
     tried_queries = state.get("tried_queries", [])
 
+    # 검색어 생성에 실패하면 포기합니다.
     if not query:
         return "giveup"
 
+    # 새로운 검색어가 등록되었으면 다시 검색합니다.
     if query in tried_queries:
         return "retry_search"
 
+    # 정상적인 재작성이 아니면 포기합니다.
     return "giveup"
 
 
-# ===================================================
-# 그래프 만들기
-# ===================================================
+# ============================================================
+# LangGraph를 구성합니다.
+# ============================================================
 
 def build_graph():
 
-    g = StateGraph(RAGState)
+    # RAGState를 사용하는 그래프를 만듭니다.
+    graph = StateGraph(RAGState)
 
 
-    # -------------------------------
-    # 노드 등록
-    # -------------------------------
+    # --------------------------------------------------------
+    # 질문 분류 노드
+    # --------------------------------------------------------
 
-    g.add_node("classify", classifier_node)
-
-    g.add_node("greeting", greeting_node)
-    g.add_node("calc", calc_node)
-    g.add_node("scope", scope_node)
-
-    g.add_node("retrieve", safe_retriever_node)
-    g.add_node("generate", safe_generator_node)
-    g.add_node("verify", safe_verifier_node)
-
-    g.add_node("bump", bump_node)
-    g.add_node("rewrite", rewrite_node)
-    g.add_node("fallback", fallback_node)
+    graph.add_node("classify", classifier_node)
+    graph.add_node("greeting", greeting_node)
+    graph.add_node("calc", calc_node)
+    graph.add_node("scope", scope_node)
 
 
-    # -------------------------------
-    # 시작
-    # -------------------------------
+    # --------------------------------------------------------
+    # RAG 노드
+    # safe_node를 적용한 안전한 노드를 등록합니다.
+    # --------------------------------------------------------
 
-    g.add_edge(START, "classify")
+    graph.add_node("retrieve", safe_retriever_node)
+    graph.add_node("generate", safe_generator_node)
+    graph.add_node("verify", safe_verifier_node)
 
 
-    # -------------------------------
-    # 질문 분류
-    # -------------------------------
+    # --------------------------------------------------------
+    # 재시도 / 재검색 / 실패 처리 노드
+    # --------------------------------------------------------
 
-    g.add_conditional_edges(
+    graph.add_node("bump", bump_node)
+    graph.add_node("rewrite", rewrite_node)
+    graph.add_node("fallback", fallback_node)
+
+
+    # --------------------------------------------------------
+    # START → classify
+    # --------------------------------------------------------
+
+    graph.add_edge(START, "classify")
+
+
+    # --------------------------------------------------------
+    # 질문 종류에 따라 분기합니다.
+    # --------------------------------------------------------
+
+    graph.add_conditional_edges(
         "classify",
         route_by_intent,
         {
@@ -258,16 +322,18 @@ def build_graph():
         }
     )
 
-    g.add_edge("greeting", END)
-    g.add_edge("calc", END)
-    g.add_edge("scope", END)
+
+    # 인사, 계산, 범위 밖 질문은 바로 종료합니다.
+    graph.add_edge("greeting", END)
+    graph.add_edge("calc", END)
+    graph.add_edge("scope", END)
 
 
-    # -------------------------------
-    # 검색 후
-    # -------------------------------
+    # --------------------------------------------------------
+    # 검색 결과에 따라 분기합니다.
+    # --------------------------------------------------------
 
-    g.add_conditional_edges(
+    graph.add_conditional_edges(
         "retrieve",
         route_after_retrieve,
         {
@@ -278,18 +344,18 @@ def build_graph():
     )
 
 
-    # -------------------------------
-    # 생성 후 검증
-    # -------------------------------
+    # --------------------------------------------------------
+    # 답변을 생성한 후 검증합니다.
+    # --------------------------------------------------------
 
-    g.add_edge("generate", "verify")
+    graph.add_edge("generate", "verify")
 
 
-    # -------------------------------
-    # 검증 후
-    # -------------------------------
+    # --------------------------------------------------------
+    # 검증 결과에 따라 분기합니다.
+    # --------------------------------------------------------
 
-    g.add_conditional_edges(
+    graph.add_conditional_edges(
         "verify",
         route_after_verify,
         {
@@ -301,18 +367,18 @@ def build_graph():
     )
 
 
-    # -------------------------------
-    # 재생성
-    # -------------------------------
+    # --------------------------------------------------------
+    # 답변 재생성: bump → generate
+    # --------------------------------------------------------
 
-    g.add_edge("bump", "generate")
+    graph.add_edge("bump", "generate")
 
 
-    # -------------------------------
-    # 재검색
-    # -------------------------------
+    # --------------------------------------------------------
+    # 질문 재작성 후 다시 검색하거나 포기합니다.
+    # --------------------------------------------------------
 
-    g.add_conditional_edges(
+    graph.add_conditional_edges(
         "rewrite",
         route_after_rewrite,
         {
@@ -322,50 +388,54 @@ def build_graph():
     )
 
 
-    # -------------------------------
-    # 실패
-    # -------------------------------
+    # --------------------------------------------------------
+    # 실패 안내 후 종료합니다.
+    # --------------------------------------------------------
 
-    g.add_edge("fallback", END)
-
-
-    return g.compile()
+    graph.add_edge("fallback", END)
 
 
-# ===================================================
-# 그래프 생성
-# ===================================================
+    # 완성된 그래프를 실행 가능한 형태로 만듭니다.
+    return graph.compile()
+
+
+# ============================================================
+# 그래프를 생성합니다.
+# ============================================================
 
 app = build_graph()
 
 
-# ===================================================
-# 질문 실행
-# ===================================================
+# ============================================================
+# 사용자 질문을 그래프에 전달합니다.
+# 실행 결과와 처리 시간을 운영 로그에 저장합니다.
+# ============================================================
 
 def ask(question, verbose=False):
 
+    # 실행 시작 시간을 기록합니다.
     start = time.time()
 
+    # 질문으로 초기 State를 만듭니다.
     state = make_initial_state(question)
 
+    # LangGraph를 실행합니다.
     final = app.invoke(
         state,
         {"recursion_limit": 25}
     )
 
+    # 전체 실행 시간을 계산합니다.
     elapsed = time.time() - start
 
-
-    # 운영 로그 저장
-    log_query(
-        question,
-        final,
-        elapsed
-    )
+    # 질문 처리 결과를 운영 로그에 저장합니다.
+    log_query(question, final, elapsed)
 
 
-    # 실행 과정 출력
+    # --------------------------------------------------------
+    # 상세 실행 과정을 출력합니다.
+    # --------------------------------------------------------
+
     if verbose:
 
         print(f"\nQ: {question}")
@@ -374,58 +444,66 @@ def ask(question, verbose=False):
             print("  ·", line)
 
 
-    # 출처 만들기
+    # --------------------------------------------------------
+    # 검색 문서의 출처를 정리합니다.
+    # --------------------------------------------------------
+
     sources = []
 
-    for doc in final.get("documents", []):
+    documents = final.get("documents", [])
 
-        sources.append({
+    for doc in documents:
+
+        source = {
             "file": doc.metadata.get("filename"),
             "page": doc.metadata.get("page_no")
-        })
+        }
+
+        sources.append(source)
 
 
-    # 결과 반환
-    return {
+    # --------------------------------------------------------
+    # 사용자에게 필요한 결과를 반환합니다.
+    # --------------------------------------------------------
+
+    result = {
         "answer": final.get("answer", ""),
         "sources": sources,
-
         "intent": final.get("intent", ""),
         "grade": final.get("grade", ""),
         "reason": final.get("reason", ""),
-
         "retries": final.get("retries", 0),
         "rewrites": final.get("rewrites", 0),
-
-        "tried_queries": final.get(
-            "tried_queries",
-            []
-        ),
-
-        "verified": (
-            final.get("grade") == "pass"
-            and not final.get("node_error")
-        ),
-
+        "tried_queries": final.get("tried_queries", []),
         "node_error": final.get("node_error", ""),
         "fail_reason": final.get("fail_reason", ""),
         "fallback_kind": final.get("fallback_kind", ""),
-
         "log": final.get("log", []),
-
         "ok": True
     }
 
+    # 정상적인 검증 통과 여부를 계산합니다.
+    result["verified"] = False
 
-# ===================================================
-# 테스트
-# ===================================================
+    if final.get("grade") == "pass":
+
+        # 노드 오류가 없을 때만 정상 검증으로 봅니다.
+        if not final.get("node_error"):
+            result["verified"] = True
+
+    return result
+
+
+# ============================================================
+# 직접 실행할 때 테스트합니다.
+# ============================================================
 
 if __name__ == "__main__":
 
+    # 현재 그래프 구조를 출력합니다.
     print(app.get_graph().draw_ascii())
 
-
+    # 여러 종류의 질문을 준비합니다.
     questions = [
         "안녕하세요",
         "10 + 20",
@@ -434,7 +512,7 @@ if __name__ == "__main__":
         "대표이사가 누구인가요?"
     ]
 
-
+    # 질문을 하나씩 실행합니다.
     for question in questions:
 
         result = ask(
@@ -448,6 +526,7 @@ if __name__ == "__main__":
         print("재시도:", result["retries"])
         print("재작성:", result["rewrites"])
 
+        # 노드 오류가 있으면 출력합니다.
         if result["node_error"]:
             print("노드 오류:", result["node_error"])
 

@@ -1,20 +1,49 @@
+# ============================================================
+# Classifier Test
+# ============================================================
+# 여러 질문을 그래프에 전달하여 분류 결과를 확인합니다.
+# 실제 분류 결과와 예상 분류 결과를 비교하여
+# 분류 노드가 정상적으로 작동하는지 테스트합니다.
+# ============================================================
+
+
 import os
 import sys
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-SRC_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
 
+# ============================================================
+# 모듈 경로 설정
+# ============================================================
+
+# 현재 테스트 파일이 있는 폴더입니다.
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 현재 폴더의 상위 src 폴더를 찾습니다.
+SRC_DIR = os.path.abspath(
+    os.path.join(CURRENT_DIR, "..")
+)
+
+# src 폴더에서 graph29와 State 모듈을 찾을 수 있도록 추가합니다.
 sys.path.insert(0, SRC_DIR)
 
+
+# ============================================================
+# 그래프와 초기 State 가져오기
+# ============================================================
+
+# 분류 그래프를 가져옵니다.
 from graph29 import app
+
+# 질문을 초기 State로 만들어 주는 함수를 가져옵니다.
 from graph_state2 import make_initial_state
 
 
-# ===================================================
-# 테스트 질문
-# ===================================================
+# ============================================================
+# 테스트 질문과 예상 결과
+# ============================================================
 
-CASES = [
+# 각 질문과 기대하는 분류 결과를 저장합니다.
+TEST_CASES = [
     ("안녕하세요", "greeting"),
     ("고맙습니다", "greeting"),
     ("125 + 340 * 2", "calc"),
@@ -24,30 +53,48 @@ CASES = [
 ]
 
 
-# ===================================================
-# 테스트 실행
-# ===================================================
+# ============================================================
+# 테스트 실행 함수
+# ============================================================
 
-for question, expected in CASES:
+def run_tests():
+    """
+    테스트 질문을 그래프에 전달하고 결과를 출력합니다.
+    """
 
-    # 그래프 실행
-    result = app.invoke(
-        make_initial_state(question),
-        {"recursion_limit": 25}
-    )
+    # 테스트 질문을 하나씩 확인합니다.
+    for question, expected_intent in TEST_CASES:
 
-    # 실제 분류 결과
-    actual = result.get("intent", "")
+        # 질문을 초기 State로 변환합니다.
+        initial_state = make_initial_state(question)
 
-    # 예상값과 실제값 비교
-    if actual == expected:
-        mark = "✓"
-    else:
-        mark = "✗"
+        # 그래프를 실행합니다.
+        result = app.invoke(
+            initial_state,
+            {
+                "recursion_limit": 25,
+            },
+        )
 
-    # 결과 출력
-    print()
-    print(f"{mark} 질문: {question}")
-    print(f"   실제 분류: {actual}")
-    print(f"   예상 분류: {expected}")
-    print(f"   답변: {result.get('answer', '')[:60]}")
+        # 실제 분류 결과를 가져옵니다.
+        actual_intent = result.get("intent", "")
+
+        # 실제 결과와 예상 결과를 비교합니다.
+        if actual_intent == expected_intent:
+            mark = "✓"
+        else:
+            mark = "✗"
+
+        # 답변이 없어도 오류가 발생하지 않도록 기본값을 사용합니다.
+        answer = result.get("answer", "")
+
+        # 질문별 테스트 결과만 출력합니다.
+        print()
+        print(f"{mark} 질문: {question}")
+        print(f"   실제 분류: {actual_intent}")
+        print(f"   예상 분류: {expected_intent}")
+        print(f"   답변: {answer[:60]}")
+
+
+if __name__ == "__main__":
+    run_tests()
