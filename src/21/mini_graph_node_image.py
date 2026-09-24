@@ -1,58 +1,105 @@
-from typing import TypedDict, List, Annotated
-from langgraph.graph import StateGraph, START, END 
-import operator
+from typing import TypedDict
+from langgraph.graph import StateGraph, START, END
+
+
+# ==========================================
+# 1. State
+# ==========================================
 
 class MiniState(TypedDict):
     question: str
-    documents: List[str]
+    documents: list[str]
     answer: str
     grade: str
     retries: int
-    log: Annotated[List[str], operator.add]
 
-def init(q: str) -> MiniState:
-    return {"question": q, "documents": [], "answer": "",
-            "grade": "", "retries": 0, "log": []}
-    
-def retrieve(state: MiniState):
-    # 질문에 '없는'이 들어가면 검색 실패로 흉내
-    q = state["question"]
-    docs = [] if "없는" in q else ["조각A", "조각B", "조각C"]     
-    print(f"   → retrieve: {len(docs)}건")
-    return {"documents": docs, "log": [f"검색 {len(docs)}건"]}
 
-def generate(state: MiniState):
-    n = len(state["documents"])
-    # 재시도할수록 답변이 좋아지는 상황을 흉내
-    quality = "좋은" if state["retries"] >= 1 else "부실한"     
-    print(f"   → generate: {quality} 답변")
-    return {"answer": f"{n}건 근거로 만든 {quality} 답변",             "log": [f"생성({quality})"]}
+def init(question):
+    return {
+        "question": question,
+        "documents": [],
+        "answer": "",
+        "grade": "",
+        "retries": 0
+    }
 
-def verify(state: MiniState):
-    ok = "좋은" in state["answer"]
-    print(f"   → verify: {'통과' if ok else '재시도'}")     
-    return {"grade": "pass" if ok else "retry",             
-            "log": ["검증 " + ("통과" if ok else "실패")]}
 
-def bump(state: MiniState):
-    n = state["retries"] + 1
-    print(f"   → bump: {n}회차")
-    return {"retries": n, "log": [f"재시도 {n}"]}
+# ==========================================
+# 2. 노드
+# ==========================================
 
-def fallback(state: MiniState):
-    print("   → fallback")
-    return {"answer": "자료를 찾지 못했습니다.",             
-            "grade": "giveup", "log": ["fallback"]}    
+def retrieve(state):
 
-# 여기에 추가
+    if "없는" in state["question"]:
+        docs = []
+    else:
+        docs = ["조각A", "조각B", "조각C"]
+
+    print(f"→ 검색: {len(docs)}건")
+
+    return {"documents": docs}
+
+
+def generate(state):
+
+    if state["retries"] == 0:
+        quality = "부실한"
+    else:
+        quality = "좋은"
+
+    answer = f"{len(state['documents'])}건 근거로 만든 {quality} 답변"
+
+    print(f"→ 생성: {answer}")
+
+    return {"answer": answer}
+
+
+def verify(state):
+
+    if "좋은" in state["answer"]:
+        print("→ 검증: 통과")
+        return {"grade": "pass"}
+
+    print("→ 검증: 실패")
+    return {"grade": "retry"}
+
+
+def bump(state):
+
+    count = state["retries"] + 1
+
+    print(f"→ 재시도: {count}회")
+
+    return {"retries": count}
+
+
+def fallback(state):
+
+    print("→ fallback")
+
+    return {
+        "answer": "자료를 찾지 못했습니다.",
+        "grade": "giveup"
+    }
+
+
+# ==========================================
+# 3. 분기 함수
+# ==========================================
+
 MAX_RETRY = 2
 
-def route_retrieve(state: MiniState) -> str:
-    return "ok" if state["documents"] else "empty"
+
+def route_retrieve(state):
+
+    if state["documents"]:
+        return "ok"
+
+    return "empty"
 
 
-def route_verify(state: MiniState) -> str:
-    # 성공 여부를 먼저 확인
+def route_verify(state):
+
     if state["grade"] == "pass":
         return "done"
 
@@ -61,93 +108,80 @@ def route_verify(state: MiniState) -> str:
 
     return "retry"
 
-if __name__ == "__main__":
-    print("■ 노드 단독 테스트")
-    s = init("환불 규정은?")
-    print("1) retrieve:", retrieve(s))
-    
-    s["documents"] = ["조각A", "조각B"]     
-    print("2) generate:", generate(s))
-    
-    s["answer"] = "부실한 답변"     
-    print("3) verify:  ", verify(s))
-         
-    print("4) bump:    ", bump(s))
-    
-     # ---------------------------------
-    # 그래프 조립
-    # ---------------------------------
 
-    print("\n■ 그래프 조립")
+# ==========================================
+# 4. 그래프 만들기
+# ==========================================
 
-    g = StateGraph(MiniState)
+g = StateGraph(MiniState)
 
-    # 1. 노드 등록
-    g.add_node("retrieve", retrieve)
-    g.add_node("generate", generate)
-    g.add_node("verify", verify)
-    g.add_node("bump", bump)
-    g.add_node("fallback", fallback)
+g.add_node("retrieve", retrieve)
+g.add_node("generate", generate)
+g.add_node("verify", verify)
+g.add_node("bump", bump)
+g.add_node("fallback", fallback)
 
-    # 2. 시작 지점 연결
-    g.add_edge(START, "retrieve")
 
-    # 3. retrieve 결과에 따른 분기
-    g.add_conditional_edges(
-        "retrieve",
-        route_retrieve,
-        {
-            "ok": "generate",
-            "empty": "fallback",
-        },
-    )
+# 시작 → 검색
+g.add_edge(START, "retrieve")
 
-    # 4. generate 다음에는 verify 실행
-    g.add_edge("generate", "verify")
 
-    # 5. verify 결과에 따른 분기
-    g.add_conditional_edges(
-        "verify",
-        route_verify,
-        {
-            "done": END,
-            "retry": "bump",
-            "giveup": "fallback",
-        },
-    )
+# 검색 결과에 따라 분기
+g.add_conditional_edges(
+    "retrieve",
+    route_retrieve,
+    {
+        "ok": "generate",
+        "empty": "fallback"
+    }
+)
 
-    # 6. 재시도 루프
-    g.add_edge("bump", "generate")
 
-    # 7. fallback 이후 종료
-    g.add_edge("fallback", END)
+# 생성 → 검증
+g.add_edge("generate", "verify")
 
-    # 8. 그래프 컴파일
-    app = g.compile()
 
-    # 9. 그래프 구조 출력
-    print(app.get_graph().draw_ascii())
+# 검증 결과에 따라 분기
+g.add_conditional_edges(
+    "verify",
+    route_verify,
+    {
+        "done": END,
+        "retry": "bump",
+        "giveup": "fallback"
+    }
+)
 
-    # 10. 그래프 실행
-    print("\n■ 그래프 실행")
 
-# 6-1) invoke — 결과만
-    # result = app.invoke(init("환불 규정은?"))
+# 재시도 → 다시 생성
+g.add_edge("bump", "generate")
 
-    # print("\n최종 결과:")
-    # print(result)
-        
-#  6-2) stream — 과정까지 
-    for step in app.stream(init("환불 규정은?"), {"recursion_limit": 15}):
-        for node, update in step.items():         
-            print(f"[{node}] {update}")
-    
-    try:
-        png = app.get_graph().draw_mermaid_png()     
-        with open("graph_structure.png", "wb") as f:         
-            f.write(png)
-        print("✓ graph_structure.png 저장 완료") 
-    except Exception as e:
-        print("이미지 생성 실패:", e)
-        print("대신 mermaid 코드를 출력합니다:")     
-        print(app.get_graph().draw_mermaid())
+
+# fallback → 종료
+g.add_edge("fallback", END)
+
+
+# 그래프 완성
+app = g.compile()
+
+
+# ==========================================
+# 5. 실행
+# ==========================================
+
+print("■ 그래프 실행")
+
+for step in app.stream(init("환불 규정은?")):
+    print(step)
+
+
+# ==========================================
+# 6. 그래프 이미지 저장
+# ==========================================
+
+png = app.get_graph().draw_mermaid_png()
+
+with open("graph_structure.png", "wb") as f:
+    f.write(png)
+
+print("graph_structure.png 저장 완료")
