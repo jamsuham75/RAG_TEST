@@ -1,23 +1,79 @@
-import sys
+# ============================================================
+# PDF 문서를 임베딩하여 FAISS 인덱스를 만드는 코드입니다.
+# 만들어진 인덱스를 디스크에 저장하여 이후 검색에 사용합니다.
+# ============================================================
+
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '07'))
+import sys
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
+
+
+# ------------------------------------------------------------
+# prepare.py가 있는 07 폴더를 Python 검색 경로에 추가합니다.
+# ------------------------------------------------------------
+
+CURRENT_DIR = os.path.dirname(__file__)
+PREPARE_DIR = os.path.join(CURRENT_DIR, "..", "07")
+
+sys.path.insert(0, PREPARE_DIR)
+
 from prepare import prepare_chunks
+
+
+# ------------------------------------------------------------
+# .env 파일에서 OpenAI API Key를 읽습니다.
+# ------------------------------------------------------------
 
 load_dotenv()
 
-INDEX_PATH  = "faiss_index"
-EMBED_MODEL = "text-embedding-3-small"
-emb = OpenAIEmbeddings(model=EMBED_MODEL)
 
-# ① 조각 준비
-chunks = prepare_chunks("../../data/manual.pdf")
-# ② 인덱스 생성 — 여기서 임베딩 비용 발생
+# ------------------------------------------------------------
+# 사용할 파일과 모델을 설정합니다.
+# ------------------------------------------------------------
+
+DOC_PATH = "../../data/manual.pdf"
+INDEX_PATH = "faiss_index"
+EMBED_MODEL = "text-embedding-3-small"
+
+
+# ------------------------------------------------------------
+# 1. PDF 문서를 작은 조각으로 나눕니다.
+# ------------------------------------------------------------
+
+chunks = prepare_chunks(DOC_PATH)
+
+print(f"문서 조각 수: {len(chunks)}개")
+
+
+# ------------------------------------------------------------
+# 2. 임베딩 모델을 준비합니다.
+# ------------------------------------------------------------
+
+embedding = OpenAIEmbeddings(
+    model=EMBED_MODEL
+)
+
+
+# ------------------------------------------------------------
+# 3. 문서 조각을 임베딩하여 FAISS 인덱스를 만듭니다.
+# 이 과정에서 OpenAI Embedding API가 호출되어 비용이 발생합니다.
+# ------------------------------------------------------------
+
 print("임베딩 중...")
-store = FAISS.from_documents(chunks, emb)
-# ③ 디스크에 저장 (핵심!)
+
+store = FAISS.from_documents(
+    chunks,
+    embedding
+)
+
+
+# ------------------------------------------------------------
+# 4. 만든 FAISS 인덱스를 디스크에 저장합니다.
+# ------------------------------------------------------------
+
 store.save_local(INDEX_PATH)
-print(f"✓ 인덱스를 {INDEX_PATH}/ 에 저장했습니다")
+
+print(f"✓ 인덱스를 {INDEX_PATH}/ 에 저장했습니다.")

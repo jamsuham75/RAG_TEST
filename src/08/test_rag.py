@@ -1,139 +1,118 @@
-import sys
+# ============================================================
+# 기본 RAG 시스템에 여러 질문을 넣어 테스트합니다.
+# 답변과 검색된 문서를 출력하고 사람이 결과를 확인합니다.
+# ============================================================
+
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '07'))
+import sys
+
+sys.path.insert(
+    0,
+    os.path.join(os.path.dirname(__file__), "..", "07")
+)
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from prepare import prepare_chunks
 
+
+# ------------------------------------------------------------
+# 1. RAG 준비
+# ------------------------------------------------------------
+
 load_dotenv()
 
-# ===== 초기화 =====
+# PDF를 읽고 작은 조각으로 나눕니다.
 chunks = prepare_chunks("../../data/manual.pdf")
-print("임베딩 중...\n")
-emb = OpenAIEmbeddings(model="text-embedding-3-small") 
+
+# 문서를 벡터로 변환하여 FAISS에 저장합니다.
+print("임베딩 중...")
+
+emb = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
+
 store = FAISS.from_documents(chunks, emb)
 
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+# 답변 생성용 LLM을 준비합니다.
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
+
 print("✓ 준비 완료\n")
 
-# ===== ask 함수 =====
+
+# ------------------------------------------------------------
+# 2. 질문 → 검색 → 답변
+# ------------------------------------------------------------
+
 def ask(question):
-    """질문 → 답변 + 출처"""
+
+    # 관련 문서 3개를 검색합니다.
     found = store.similarity_search(question, k=3)
-    
-    # 프롬프트
-    context = "\n".join([f"[{i}] {d.page_content}" 
-                        for i, d in enumerate(found, 1)])
+
+    # 검색된 문서를 하나의 문자열로 합칩니다.
+    context = ""
+
+    for i, doc in enumerate(found, 1):
+        context += f"[{i}] {doc.page_content}\n"
+
+    # 검색된 자료를 근거로 답변하도록 지시합니다.
     prompt = (
-        f"아래 자료만 근거로 답하세요.\n"
-        f"자료에 없으면 '자료에서 확인할 수 없습니다'라고 하세요.\n\n"
-        f"[자료]\n{context}\n\n"
+        "아래 자료만 근거로 답하세요.\n"
+        "자료에 없으면 '자료에서 확인할 수 없습니다'라고 하세요.\n\n"
+        f"[자료]\n{context}\n"
         f"[질문] {question}"
     )
-    
-    answer = llm.invoke(prompt).content
-    sources = [f"{d.metadata['filename']} p.{d.metadata['page_no']}" 
-               for d in found]
-    
-    return answer, sources, found
 
-# ===== 테스트 질문 =====
+    # LLM에게 질문합니다.
+    answer = llm.invoke(prompt).content
+
+    return answer, found
+
+
+# ------------------------------------------------------------
+# 3. 테스트 질문
+# ------------------------------------------------------------
+
 TESTS = [
-    "환불은 며칠 이내에 신청해야 하나요?",     # ① 정상
-    "우리 회사 대표이사 이름이 뭔가요?",        # ② 없는 내용
-    "반품 절차를 알려주세요",                   # ③ 표현 변경
-    "환불과 교환은 어떻게 다른가요?",          # ④ 복합
+    "환불은 며칠 이내에 신청해야 하나요?",
+    "우리 회사 대표이사 이름이 뭔가요?",
+    "반품 절차를 알려주세요",
+    "환불과 교환은 어떻게 다른가요?",
 ]
 
-# ===== 테스트 실행 =====
-print("=" * 100)
-print("🧪 RAG 테스트 (4개 질문)")
-print("=" * 100)
 
-results = []
-for i, q in enumerate(TESTS, 1):
-    print(f"\n[질문 {i}] {q}")
-    answer, sources, chunks_found = ask(q)
-    print(f"[답변] {answer}")
-    print(f"[출처] {', '.join(sources)}")
-    
-    results.append({
-        "번호": i,
-        "질문": q,
-        "답변": answer,
-        "출처": sources,
-        "청크": chunks_found
-    })
-    print("-" * 100)
+# ------------------------------------------------------------
+# 4. 테스트 실행
+# ------------------------------------------------------------
 
-# ===== 평가 =====
-print("\n\n" + "=" * 100)
-print("📋 평가 - 각 질문의 Y/N 입력하세요")
-print("=" * 100)
+for i, question in enumerate(TESTS, 1):
 
-evals = []
-for r in results:
-    print(f"\n[질문 {r['번호']}] {r['질문']}")
-    print(f"[답변] {r['답변']}")
-    
-    ans = input(f"  → 답변 정확? (Y/N): ").strip().upper() == 'Y'
-    src = input(f"  → 출처 정확? (Y/N): ").strip().upper() == 'Y'
-    note = input(f"  → 비고: ").strip() or "-"
-    
-    evals.append({
-        "번호": r['번호'],
-        "질문": r['질문'],
-        "답변": "✅" if ans else "❌",
-        "출처": "✅" if src else "❌",
-        "비고": note
-    })
+    print("=" * 60)
+    print(f"[질문 {i}] {question}")
 
-# ===== 평가표 출력 =====
-print("\n" + "=" * 120)
-print("📊 평가표")
-print("=" * 120)
-print(f"{'번호':<4} {'질문':<40} {'답변':<6} {'출처':<6} {'비고':<30}")
-print("-" * 120)
+    # RAG를 실행합니다.
+    answer, found = ask(question)
 
-for e in evals:
-    print(f"{e['번호']:<4} {e['질문'][:40]:<40} {e['답변']:<6} {e['출처']:<6} {e['비고'][:30]:<30}")
+    # 답변을 출력합니다.
+    print(f"\n[답변]")
+    print(answer)
 
-# ===== 통계 =====
-correct_ans = sum(1 for e in evals if e['답변'] == "✅")
-correct_src = sum(1 for e in evals if e['출처'] == "✅")
+    # 검색된 문서를 출력합니다.
+    print("\n[검색 결과]")
 
-print("\n" + "=" * 120)
-print("📈 통계")
-print("=" * 120)
-print(f"답변 정확성: {correct_ans}/4 ({correct_ans*100//4}%)")
-print(f"출처 정확성: {correct_src}/4 ({correct_src*100//4}%)")
+    for j, doc in enumerate(found, 1):
+        print(f"{j}. {doc.page_content[:100]}...")
 
-# ===== 실패 사례 분석 =====
-print("\n" + "=" * 120)
-print("🔍 실패 사례 분석")
-print("=" * 120)
+    # 사람이 결과를 평가합니다.
+    result = input("\n답변이 정확한가요? (Y/N): ")
 
-failures = [e for e in evals if e['답변'] == "❌"]
+    if result.upper() == "Y":
+        print("✓ 정상")
+    else:
+        print("✗ 실패")
 
-if failures:
-    for fail in failures:
-        r = next(x for x in results if x['번호'] == fail['번호'])
-        print(f"\n【질문】{fail['질문']}")
-        print(f"【답변 결과】{r['답변']}")
-        print(f"【검색된 청크】")
-        for j, chunk in enumerate(r['청크'], 1):
-            print(f"  [{j}] {chunk.page_content[:100]}...")
-        
-        print(f"\n【분석】이 청크들에 정답이 있었나요?")
-        has_answer = input(f"     (Y/N): ").strip().upper() == 'Y'
-        
-        if has_answer:
-            print(f"  ✗ [생성 문제] 정답이 있는데 틀린 답변을 생성함")
-        else:
-            print(f"  ✗ [검색 문제] 정답이 포함된 청크를 찾지 못함")
-        
-        print("-" * 120)
-else:
-    print("\n✅ 모든 질문을 정확하게 답변했습니다!")
+    print()

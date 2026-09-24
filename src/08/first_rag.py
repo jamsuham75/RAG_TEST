@@ -1,20 +1,65 @@
-import sys
-import os
+# ============================================================
+# 문서를 조각으로 나눈 뒤 임베딩하여 FAISS 벡터 저장소를 만듭니다.
+# 7차시에서 만든 prepare_chunks() 함수를 재사용합니다.
+# ============================================================
 
-# 06 디렉토리를 path에 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '07'))
+import os
+import sys
 
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
-from prepare import prepare_chunks        # 7차시에서 만든 함수 
 
+
+# ------------------------------------------------------------
+# 1. 7차시 폴더를 Python 모듈 검색 경로에 추가
+# ------------------------------------------------------------
+
+CURRENT_DIR = os.path.dirname(__file__)
+CH07_DIR = os.path.join(CURRENT_DIR, "..", "07")
+
+sys.path.insert(0, CH07_DIR)
+
+
+# 7차시에서 만든 문서 준비 함수를 가져옵니다.
+from prepare import prepare_chunks
+
+
+# ------------------------------------------------------------
+# 2. 환경변수 로드
+# ------------------------------------------------------------
+
+# .env 파일에서 OPENAI_API_KEY를 읽습니다.
 load_dotenv()
-# ①② 문서 읽고 조각내기 (6·7차시 결과 재사용)
-chunks = prepare_chunks("../../data/manual.pdf")
-# ③ 조각을 벡터로 바꿔 저장
-print("임베딩 중... (조금 걸립니다)")
-emb = OpenAIEmbeddings(model="text-embedding-3-small") 
 
+
+# ------------------------------------------------------------
+# 3. PDF 읽기 + 문서 분할
+# ------------------------------------------------------------
+
+# PDF를 읽고 작은 Document 조각들로 나눕니다.
+chunks = prepare_chunks("../../data/manual.pdf")
+
+print(f"✓ 문서 분할 완료: {len(chunks)}개")
+
+
+# ------------------------------------------------------------
+# 4. 임베딩 모델 준비
+# ------------------------------------------------------------
+
+# 문장을 숫자 벡터로 변환할 임베딩 모델을 만듭니다.
+emb = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
+
+
+# ------------------------------------------------------------
+# 5. 문서 임베딩 + FAISS 저장
+# ------------------------------------------------------------
+
+print("임베딩 중... (조금 걸립니다)")
+
+# chunks를 벡터로 변환하고 FAISS에 저장합니다.
 store = FAISS.from_documents(chunks, emb)
+
 print("✓ 인덱싱 완료")

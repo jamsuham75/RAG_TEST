@@ -1,25 +1,77 @@
+# ============================================================
+# 기준 문장과 여러 질문의 코사인 유사도를 비교합니다.
+# 관련 질문과 무관한 질문의 점수를 비교하여 임계값 후보를 구합니다.
+# ============================================================
 
 import numpy as np
 from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 
+
+# ------------------------------------------------------------
+# 1. 환경 변수 불러오기
+# ------------------------------------------------------------
+
+# .env 파일에 저장된 OPENAI_API_KEY를 불러옵니다.
 load_dotenv()
 
-emb = OpenAIEmbeddings(model="text-embedding-3-small")
 
-def sim(a: str, b: str) -> float:
-    """두 문장의 코사인 유사도를 계산한다 (0~1)"""
-    v1 = np.array(emb.embed_query(a))
-    v2 = np.array(emb.embed_query(b))
-    dot_product = np.dot(v1, v2)
-    length1 = np.linalg.norm(v1)
-    length2 = np.linalg.norm(v2)
-    return float(dot_product / (length1 * length2))
+# ------------------------------------------------------------
+# 2. 임베딩 모델 준비
+# ------------------------------------------------------------
 
-# 내 문서 주제에 맞춰 두 그룹을 만든다
+# 문장을 숫자 벡터로 변환할 임베딩 모델을 생성합니다.
+emb = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
+
+
+# ------------------------------------------------------------
+# 3. 두 문장의 코사인 유사도를 계산하는 함수
+# ------------------------------------------------------------
+
+def sim(sentence1, sentence2):
+
+    # 첫 번째 문장을 임베딩 벡터로 변환합니다.
+    vector1 = emb.embed_query(sentence1)
+
+    # 두 번째 문장을 임베딩 벡터로 변환합니다.
+    vector2 = emb.embed_query(sentence2)
+
+    # 계산을 위해 NumPy 배열로 변환합니다.
+    vector1 = np.array(vector1)
+    vector2 = np.array(vector2)
+
+    # 두 벡터의 내적을 계산합니다.
+    dot_product = np.dot(vector1, vector2)
+
+    # 첫 번째 벡터의 길이를 계산합니다.
+    length1 = np.linalg.norm(vector1)
+
+    # 두 번째 벡터의 길이를 계산합니다.
+    length2 = np.linalg.norm(vector2)
+
+    # 코사인 유사도를 계산합니다.
+    similarity = dot_product / (length1 * length2)
+
+    # 계산된 유사도를 반환합니다.
+    return float(similarity)
+
+
+# ------------------------------------------------------------
+# 4. 기준 문장 준비
+# ------------------------------------------------------------
+
+# 모든 질문과 비교할 기준 문장입니다.
 BASE = "환불은 상품 수령 후 7일 이내에 신청할 수 있습니다"
 
-RELATED = [      # 관련 있다고 봐야 할 질문들
+
+# ------------------------------------------------------------
+# 5. 관련 질문과 무관한 질문 준비
+# ------------------------------------------------------------
+
+# 기준 문장과 관련 있다고 판단한 질문들입니다.
+RELATED = [
     "반품하고 싶어요",
     "돈 돌려받을 수 있나요?",
     "구매 취소 기간이 어떻게 되나요?",
@@ -27,7 +79,8 @@ RELATED = [      # 관련 있다고 봐야 할 질문들
     "환불 신청 기한 알려주세요",
 ]
 
-UNRELATED = [    # 관련 없다고 봐야 할 질문들
+# 기준 문장과 관련 없다고 판단한 질문들입니다.
+UNRELATED = [
     "회사 주차장은 어디인가요?",
     "채용 공고 보고 싶어요",
     "오늘 날씨 어때요?",
@@ -35,24 +88,79 @@ UNRELATED = [    # 관련 없다고 봐야 할 질문들
     "직원 복지 제도 알려주세요",
 ]
 
-# ① 관련 있는 질문들의 점수를 하나씩 구해서 리스트에 담기 
-rel = []
-for q in RELATED:
-    rel.append(sim(BASE, q))
 
-# ② 관련 없는 질문들도 똑같이
-unrel = []
-for q in UNRELATED:
-    unrel.append(sim(BASE, q))
+# ------------------------------------------------------------
+# 6. 관련 질문의 유사도 계산
+# ------------------------------------------------------------
+
+# 관련 질문의 유사도를 저장할 리스트입니다.
+related_scores = []
+
+# 관련 질문을 하나씩 가져옵니다.
+for question in RELATED:
+
+    # 기준 문장과 질문의 유사도를 계산합니다.
+    score = sim(BASE, question)
+
+    # 계산된 점수를 리스트에 저장합니다.
+    related_scores.append(score)
+
+
+# ------------------------------------------------------------
+# 7. 무관한 질문의 유사도 계산
+# ------------------------------------------------------------
+
+# 무관한 질문의 유사도를 저장할 리스트입니다.
+unrelated_scores = []
+
+# 무관한 질문을 하나씩 가져옵니다.
+for question in UNRELATED:
+
+    # 기준 문장과 질문의 유사도를 계산합니다.
+    score = sim(BASE, question)
+
+    # 계산된 점수를 리스트에 저장합니다.
+    unrelated_scores.append(score)
+
+
+# ------------------------------------------------------------
+# 8. 관련 질문 결과 출력
+# ------------------------------------------------------------
 
 print("■ 관련 있는 질문")
+
+# 질문과 유사도 점수를 순서대로 출력합니다.
 for i in range(len(RELATED)):
-    print(f"   {rel[i]:.3f}  {RELATED[i]}")
-print(f"   → 최저 {min(rel):.3f}")
+    print(f"   {related_scores[i]:.3f}  {RELATED[i]}")
+
+# 관련 질문 중 가장 낮은 점수를 구합니다.
+min_related = min(related_scores)
+
+print(f"   → 최저 {min_related:.3f}")
+
+
+# ------------------------------------------------------------
+# 9. 무관한 질문 결과 출력
+# ------------------------------------------------------------
 
 print("\n■ 관련 없는 질문")
-for i in range(len(UNRELATED)):
-    print(f"   {unrel[i]:.3f}  {UNRELATED[i]}") 
-print(f"   → 최고 {max(unrel):.3f}")
 
-print(f"\n▶ 권장 임계값: {(min(rel) + max(unrel)) / 2:.2f}")
+# 질문과 유사도 점수를 순서대로 출력합니다.
+for i in range(len(UNRELATED)):
+    print(f"   {unrelated_scores[i]:.3f}  {UNRELATED[i]}")
+
+# 무관한 질문 중 가장 높은 점수를 구합니다.
+max_unrelated = max(unrelated_scores)
+
+print(f"   → 최고 {max_unrelated:.3f}")
+
+
+# ------------------------------------------------------------
+# 10. 임계값 후보 계산
+# ------------------------------------------------------------
+
+# 두 그룹의 경계 점수 사이의 중간값을 계산합니다.
+threshold = (min_related + max_unrelated) / 2
+
+# 계산된 임계값 후보를 출력합니다.
+print(f"\n▶ 임계값 후보: {threshold:.2f}")

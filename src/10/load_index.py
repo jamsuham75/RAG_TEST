@@ -1,17 +1,69 @@
+# ============================================================
+# 저장된 FAISS 인덱스를 불러와 검색하는 코드입니다.
+# 문서를 다시 임베딩하지 않고 기존 인덱스를 바로 사용합니다.
+# ============================================================
+
 from dotenv import load_dotenv
-from langchain_community.vectorstores import FAISS 
 from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+
+
+# ------------------------------------------------------------
+# .env 파일에서 OpenAI API Key를 읽습니다.
+# ------------------------------------------------------------
 
 load_dotenv()
 
-emb = OpenAIEmbeddings(model="text-embedding-3-small")
 
-# 저장된 인덱스 불러오기 (비용 0, 즉시 완료)
-store = FAISS.load_local(
-    "faiss_index",
-    emb,
-    allow_dangerous_deserialization=True,
+# ------------------------------------------------------------
+# 1. 인덱스를 만들 때 사용했던 임베딩 모델을 준비합니다.
+# ------------------------------------------------------------
+
+EMBED_MODEL = "text-embedding-3-small"
+INDEX_PATH = "faiss_index"
+
+embedding = OpenAIEmbeddings(
+    model=EMBED_MODEL
 )
+
+
+# ------------------------------------------------------------
+# 2. 디스크에 저장된 FAISS 인덱스를 불러옵니다.
+# 문서 전체를 다시 임베딩하지 않으므로 비용이 발생하지 않습니다.
+# ------------------------------------------------------------
+
+store = FAISS.load_local(
+    INDEX_PATH,
+    embedding,
+    allow_dangerous_deserialization=True
+)
+
 print("✓ 인덱스 로드 완료")
-found = store.similarity_search("환불 규정", k=3)
-print(f"검색 결과 {len(found)}건")
+
+
+# ------------------------------------------------------------
+# 3. 질문과 의미가 비슷한 문서 조각 3개를 검색합니다.
+# ------------------------------------------------------------
+
+query = "환불 규정"
+
+found = store.similarity_search(
+    query,
+    k=3
+)
+
+
+# ------------------------------------------------------------
+# 4. 검색된 문서 개수를 출력합니다.
+# ------------------------------------------------------------
+
+print(f"검색 결과: {len(found)}건")
+
+
+# ------------------------------------------------------------
+# 5. 검색된 문서 내용을 확인합니다.
+# ------------------------------------------------------------
+
+for i, doc in enumerate(found, 1):
+    print(f"\n[{i}]")
+    print(doc.page_content)
