@@ -1,33 +1,107 @@
-import os, re
-from langchain_community.document_loaders import PyPDFLoader 
+# ============================================================
+# PDF 문서 로딩 및 전처리
+# PDF를 읽고 불필요한 문자를 제거한 후 메타데이터를 추가합니다.
+# 마지막으로 빈 페이지와 전체 글자 수를 확인합니다.
+# ============================================================
 
+import os
+import re
+
+from langchain_community.document_loaders import PyPDFLoader
+
+
+# 제거할 불필요한 문자열입니다.
 NOISE = ["㈜한국주식회사 대외비"]
 
-def load_documents(path: str):
-    # 문서를 읽고, 정리하고, 검증까지 한 번에
-    docs = PyPDFLoader(path).load()
-    
+
+# ------------------------------------------------------------
+# PDF 문서를 읽고 정리하는 함수
+# ------------------------------------------------------------
+
+def load_documents(path):
+
+    # PDF를 페이지별 Document 객체로 읽습니다.
+    loader = PyPDFLoader(path)
+    docs = loader.load()
+
+
+    # --------------------------------------------------------
+    # 1. 각 페이지의 내용을 정리합니다.
+    # --------------------------------------------------------
+
     for d in docs:
-        # 잡음 제거
+
+        # 현재 페이지의 본문을 가져옵니다.
         text = d.page_content
-        for n in NOISE:
-            text = text.replace(n, "")
+
+
+        # 불필요한 문자열을 제거합니다.
+        for noise in NOISE:
+            text = text.replace(noise, "")
+
+
+        # 연속된 줄바꿈을 최대 두 번으로 줄입니다.
         text = re.sub(r"\n{3,}", "\n\n", text)
+
+        # 앞뒤 공백을 제거하고 다시 저장합니다.
         d.page_content = text.strip()
-        
-        # metadata 보강
-        d.metadata["filename"] = os.path.basename(path)         
+
+
+        # ----------------------------------------------------
+        # 2. 메타데이터를 추가합니다.
+        # ----------------------------------------------------
+
+        # 파일 이름을 저장합니다.
+        d.metadata["filename"] = os.path.basename(path)
+
+        # 사람이 보는 페이지 번호를 저장합니다.
         d.metadata["page_no"] = d.metadata.get("page", 0) + 1
-        
-    # 검증
-    empty = [d.metadata["page_no"] for d in docs              
-             if len(d.page_content) < 10]
-    if empty:
-        print("⚠ 비어 있는 페이지:", empty)
-    print(f"✓ {len(docs)}쪽 로딩 완료 "
-          f"(총 {sum(len(d.page_content) for d in docs)}자)")     
+
+
+    # --------------------------------------------------------
+    # 3. 내용이 거의 없는 페이지를 확인합니다.
+    # --------------------------------------------------------
+
+    empty_pages = []
+
+    for d in docs:
+
+        # 글자가 10자보다 적으면 빈 페이지로 판단합니다.
+        if len(d.page_content) < 10:
+            empty_pages.append(d.metadata["page_no"])
+
+
+    # 빈 페이지가 있으면 알려줍니다.
+    if empty_pages:
+        print("⚠ 비어 있는 페이지:", empty_pages)
+
+
+    # --------------------------------------------------------
+    # 4. 전체 글자 수를 계산합니다.
+    # --------------------------------------------------------
+
+    total_len = 0
+
+    for d in docs:
+        total_len += len(d.page_content)
+
+
+    # 로딩 결과를 출력합니다.
+    print(f"✓ {len(docs)}쪽 로딩 완료 (총 {total_len}자)")
+
+
+    # 정리가 끝난 Document 리스트를 반환합니다.
     return docs
 
+
+# ============================================================
+# 직접 실행했을 때만 테스트합니다.
+# ============================================================
+
 if __name__ == "__main__":
-    docs = load_documents("../../data/manual.pdf")     
+
+    # PDF를 읽고 정리합니다.
+    docs = load_documents("../../data/manual.pdf")
+
+    # 첫 페이지의 앞 200자를 확인합니다.
     print(docs[0].page_content[:200])

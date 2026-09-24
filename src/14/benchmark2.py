@@ -1,124 +1,330 @@
-import time
-import warnings
+# ============================================================
+# 14차시 - RAG 설정값 비교 실험
+#
+# chunk_size, k, 프롬프트를 하나씩 바꿔가며
+# RAG의 정답률이 어떻게 변하는지 비교합니다.
+# ============================================================
+
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
-from langchain_text_splitters import RecursiveCharacterTextSplitter 
-import os
-import sys
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# from yaml import warnings
 
-# ✅ 경고 메시지 모두 제거
-warnings.filterwarnings('ignore')
+# ============================================================
+# 1. 다른 차시의 파일 가져오기
+# ============================================================
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '06'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '13'))
+# 현재 파일이 있는 폴더입니다.
+CURRENT_DIR = Path(__file__).resolve().parent
+
+# src 폴더입니다.
+SRC_DIR = CURRENT_DIR.parent
+
+# 06차시와 13차시 폴더를 Python 검색 경로에 추가합니다.
+sys.path.insert(0, str(SRC_DIR / "06"))
+sys.path.insert(0, str(SRC_DIR / "13"))
 
 from ingest import load_documents
 from prompts import PROMPTS
-from dotenv import load_dotenv
 
+
+# ============================================================
+# 2. OpenAI 모델 준비
+# ============================================================
+
+# .env 파일에서 OpenAI API Key를 읽습니다.
 load_dotenv()
 
-emb = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+# 문서를 숫자 벡터로 바꾸는 임베딩 모델입니다.
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
 
-DOCS = load_documents("../../data/manual.pdf")
-
-_cache = {}
-
-def make_store(chunk_size, overlap):
-    key = (chunk_size, overlap)
-    if key in _cache:
-        return _cache[key]
-    sp = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=overlap,
-        separators=["\n\n", "\n", ". ", " ", ""])
-    chunks = sp.split_documents(DOCS)
-    _cache[key] = FAISS.from_documents(chunks, emb)     
-    print(f"   (인덱스 생성: chunk={chunk_size} 조각={len(chunks)})")     
-    return _cache[key]
+# 답변을 생성할 LLM입니다.
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
 
 
-def build_context(docs):
-    parts = []
-    for i, d in enumerate(docs, 1):
-        parts.append(f"[{i}] {d.page_content}")
-    return "\n\n---\n\n".join(parts)
+# ============================================================
+# 3. PDF 문서 읽기
+# ============================================================
+
+# 프로젝트 최상위 폴더를 찾습니다.
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+# PDF 파일 경로를 만듭니다.
+PDF_PATH = ROOT_DIR / "data" / "manual.pdf"
+
+# PDF 문서를 한 번만 읽어둡니다.
+documents = load_documents(str(PDF_PATH))
 
 
-def run(name, chunk_size, overlap, k, min_score, version, tests):
-    store = make_store(chunk_size, overlap)
-    chain = PROMPTS[version] | llm | StrOutputParser()
-    hit, tokens, t0 = 0, 0, time.time()
-    fails = []
-    
-    for t in tests:
-        pairs = store.similarity_search_with_relevance_scores(t["q"], k=k)
-        # 기준(min_score)을 넘는 것만 골라 담기
-        docs = []
-        for d, s in pairs:
-            if s >= min_score:
-                docs.append(d)
-        
-        ctx = build_context(docs) if docs else "(자료 없음)"
-        ans = chain.invoke({"context": ctx, "question": t["q"]})
-        tokens += len(ctx) // 2  # 한글 대략 2자 = 1토큰
-        
-        # 정답 키워드 중 하나라도 답변에 들어있으면 정답
-        ok = False
-        for key in t["keys"]:
-            if key in ans:
-                ok = True
-                break
-        
-        if ok:
-            hit += 1
-        else:
-            fails.append(t["q"])
-    
-    sec = time.time() - t0
-    rate = hit / len(tests) * 100
-    print(f"{name:<12} chunk={chunk_size:<5} k={k:<3} "
-          f"{version:<3} | 정답 {hit:>2}/{len(tests)} ({rate:>3.0f}%) "
-          f"| 평균토큰 {tokens//len(tests):>5} | {sec:>4.0f}초")
-    
-    return {"name": name, "rate": rate,
-            "tokens": tokens // len(tests), "fails": fails}
+# ============================================================
+# 4. 테스트 질문
+# ============================================================
 
-
-# ============================================================================
-# 테스트 케이스
-# ============================================================================
 TESTS = [
-    {"q": "환불은 며칠 이내인가요?",  "keys": ["7일", "일주일"]},     
-    {"q": "교환 기간은?",             "keys": ["30일"]},
-    {"q": "대표이사 이름은?",         "keys": ["확인할 수 없"]},     
-    # ... 20개까지
+    {
+        "q": "환불은 며칠 이내인가요?",
+        "keys": ["7일", "일주일"]
+    },
+    {
+        "q": "교환 기간은?",
+        "keys": ["30일"]
+    },
+    {
+        "q": "대표이사 이름은?",
+        "keys": ["확인할 수 없"]
+    }
 ]
 
-print("■ 기준선 측정")
-print("-" * 78)
-# baseline = run("기준선", 500, 50, 3, -1.0, "v2", TESTS)
 
-print("="*80)
-print("1️⃣  chunk_size 비교 (k=3, v2 고정)")
-print("="*80)
-run("chunk_500", 500, 50, 3, -1.0, "v2", TESTS)
-run("chunk_1024", 1024, 100, 3, -1.0, "v2", TESTS)
-run("chunk_2048", 2048, 200, 3, -1.0, "v2", TESTS)
+# ============================================================
+# 5. 하나의 실험 실행
+# ============================================================
 
-print("\n" + "="*80)
-print("2️⃣  k값 비교 (chunk=500, v2 고정)")
-print("="*80)
-run("k_3", 500, 50, 3, -1.0, "v2", TESTS)
-run("k_5", 500, 50, 5, -1.0, "v2", TESTS)
-run("k_10", 500, 50, 10, -1.0, "v2", TESTS)
+def run_experiment(name, chunk_size, overlap, k, version):
 
-print("\n" + "="*80)
-print("3️⃣  프롬프트 버전 비교 (chunk=500, k=3 고정)")
-print("="*80)
-run("v1", 500, 50, 3, -1.0, "v1", TESTS)
-run("v2", 500, 50, 3, -1.0, "v2", TESTS)
-run("v3", 500, 50, 3, -1.0, "v3", TESTS)
+    print()
+    print("-" * 70)
+    print(
+        f"{name} : "
+        f"chunk={chunk_size}, "
+        f"overlap={overlap}, "
+        f"k={k}, "
+        f"prompt={version}"
+    )
+    print("-" * 70)
+
+
+    # --------------------------------------------------------
+    # STEP 1. 문서를 chunk로 나눕니다.
+    # --------------------------------------------------------
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap
+    )
+
+    chunks = splitter.split_documents(documents)
+
+    print(f"문서 조각 수: {len(chunks)}")
+
+
+    # --------------------------------------------------------
+    # STEP 2. chunk를 임베딩하여 FAISS를 만듭니다.
+    # --------------------------------------------------------
+
+    store = FAISS.from_documents(
+        chunks,
+        embeddings
+    )
+
+
+    # --------------------------------------------------------
+    # STEP 3. 사용할 프롬프트와 LLM을 연결합니다.
+    # --------------------------------------------------------
+
+    chain = (
+        PROMPTS[version]
+        | llm
+        | StrOutputParser()
+    )
+
+
+    # --------------------------------------------------------
+    # STEP 4. 테스트 질문을 하나씩 실행합니다.
+    # --------------------------------------------------------
+
+    correct_count = 0
+
+    for test in TESTS:
+
+        # 질문을 꺼냅니다.
+        question = test["q"]
+
+        # 정답으로 인정할 키워드를 꺼냅니다.
+        answer_keys = test["keys"]
+
+
+        # ----------------------------------------------------
+        # 질문과 관련된 문서를 k개 검색합니다.
+        # ----------------------------------------------------
+
+        docs = store.similarity_search(
+            question,
+            k=k
+        )
+
+
+        # ----------------------------------------------------
+        # 검색된 문서를 하나의 Context로 합칩니다.
+        # ----------------------------------------------------
+
+        context = ""
+
+        for doc in docs:
+            context += doc.page_content
+            context += "\n\n"
+
+
+        # ----------------------------------------------------
+        # LLM에게 질문하여 답변을 생성합니다.
+        # ----------------------------------------------------
+
+        answer = chain.invoke(
+            {
+                "context": context,
+                "question": question
+            }
+        )
+
+
+        # ----------------------------------------------------
+        # 답변에 정답 키워드가 있는지 검사합니다.
+        # ----------------------------------------------------
+
+        correct = False
+
+        for key in answer_keys:
+
+            if key in answer:
+                correct = True
+                break
+
+
+        # 정답이면 개수를 증가시킵니다.
+        if correct:
+            correct_count += 1
+
+
+    # --------------------------------------------------------
+    # STEP 5. 정답률을 계산합니다.
+    # --------------------------------------------------------
+
+    total = len(TESTS)
+
+    rate = correct_count / total * 100
+
+
+    # --------------------------------------------------------
+    # STEP 6. 실험 결과를 출력합니다.
+    # --------------------------------------------------------
+
+    print(
+        f"결과: "
+        f"{correct_count}/{total} "
+        f"({rate:.0f}%)"
+    )
+
+
+# ============================================================
+# 6. chunk_size 비교
+# ============================================================
+
+print()
+print("=" * 80)
+print("1. chunk_size 비교")
+print("k=3, prompt=v2 고정")
+print("=" * 80)
+
+run_experiment(
+    name="chunk_500",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v2"
+)
+
+run_experiment(
+    name="chunk_1024",
+    chunk_size=1024,
+    overlap=100,
+    k=3,
+    version="v2"
+)
+
+run_experiment(
+    name="chunk_2048",
+    chunk_size=2048,
+    overlap=200,
+    k=3,
+    version="v2"
+)
+
+
+# ============================================================
+# 7. k값 비교
+# ============================================================
+
+print()
+print("=" * 80)
+print("2. k값 비교")
+print("chunk=500, prompt=v2 고정")
+print("=" * 80)
+
+run_experiment(
+    name="k_3",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v2"
+)
+
+run_experiment(
+    name="k_5",
+    chunk_size=500,
+    overlap=50,
+    k=5,
+    version="v2"
+)
+
+run_experiment(
+    name="k_10",
+    chunk_size=500,
+    overlap=50,
+    k=10,
+    version="v2"
+)
+
+
+# ============================================================
+# 8. 프롬프트 버전 비교
+# ============================================================
+
+print()
+print("=" * 80)
+print("3. 프롬프트 버전 비교")
+print("chunk=500, k=3 고정")
+print("=" * 80)
+
+run_experiment(
+    name="v1",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v1"
+)
+
+run_experiment(
+    name="v2",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v2"
+)
+
+run_experiment(
+    name="v3",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v3"
+)

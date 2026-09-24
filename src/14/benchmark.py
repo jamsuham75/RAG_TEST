@@ -1,101 +1,222 @@
-import time
+# ============================================================
+# 14차시 - RAG 설정값 비교 실험
+#
+# ① PDF를 chunk로 나눈다.
+# ② FAISS 검색 저장소를 만든다.
+# ③ 테스트 질문을 검색하고 답변한다.
+# ④ 정답 키워드가 포함되었는지 확인한다.
+# ⑤ 설정에 따른 정답률을 비교한다.
+# ============================================================
+
+import sys
+from pathlib import Path
+
+from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
-from langchain_text_splitters import RecursiveCharacterTextSplitter 
-import os
-import sys
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '06'))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '13'))
+
+# ============================================================
+# 1. 다른 차시의 파일 가져오기
+# ============================================================
+
+CURRENT_DIR = Path(__file__).resolve().parent
+SRC_DIR = CURRENT_DIR.parent
+
+sys.path.insert(0, str(SRC_DIR / "06"))
+sys.path.insert(0, str(SRC_DIR / "13"))
 
 from ingest import load_documents
 from prompts import PROMPTS
-from dotenv import load_dotenv
+
+
+# ============================================================
+# 2. OpenAI 모델 준비
+# ============================================================
 
 load_dotenv()
 
-emb = OpenAIEmbeddings(model="text-embedding-3-small")
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+embeddings = OpenAIEmbeddings(
+    model="text-embedding-3-small"
+)
 
-# DOCS = load_documents("../../data/manual.pdf")
-from pathlib import Path
-ROOT = Path(__file__).resolve().parents[2]
-PDF_PATH = ROOT / "data" / "manual.pdf"
-DOCS = load_documents(str(PDF_PATH))
-
-_cache = {}
-
-def make_store(chunk_size, overlap):
-    key = (chunk_size, overlap)
-    if key in _cache:
-        return _cache[key]
-    sp = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=overlap,
-        separators=["\n\n", "\n", ". ", " ", ""])
-    chunks = sp.split_documents(DOCS)
-    _cache[key] = FAISS.from_documents(chunks, emb)     
-    print(f"   (인덱스 생성: chunk={chunk_size} 조각={len(chunks)})")     
-    return _cache[key]
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0
+)
 
 
-def build_context(docs):
-    parts = []
-    for i, d in enumerate(docs, 1):
-        parts.append(f"[{i}] {d.page_content}")
-    return "\n\n---\n\n".join(parts)
+# ============================================================
+# 3. PDF 문서 읽기
+# ============================================================
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+PDF_PATH = ROOT_DIR / "data" / "manual.pdf"
+
+documents = load_documents(str(PDF_PATH))
 
 
-def run(name, chunk_size, overlap, k, min_score, version, tests):
-    store = make_store(chunk_size, overlap)
-    chain = PROMPTS[version] | llm | StrOutputParser()
-    hit, tokens, t0 = 0, 0, time.time()
-    fails = []
-    
-    for t in tests:
-        pairs = store.similarity_search_with_relevance_scores(t["q"], k=k)
-        # 기준(min_score)을 넘는 것만 골라 담기
-        docs = []
-        for d, s in pairs:
-            if s >= min_score:
-                docs.append(d)
-        
-        ctx = build_context(docs) if docs else "(자료 없음)"
-        ans = chain.invoke({"context": ctx, "question": t["q"]})
-        tokens += len(ctx) // 2  # 한글 대략 2자 = 1토큰
-        
-        # 정답 키워드 중 하나라도 답변에 들어있으면 정답
-        ok = False
-        for key in t["keys"]:
-            if key in ans:
-                ok = True
-                break
-        
-        if ok:
-            hit += 1
-        else:
-            fails.append(t["q"])
-    
-    sec = time.time() - t0
-    rate = hit / len(tests) * 100
-    print(f"{name:<12} chunk={chunk_size:<5} k={k:<3} "
-          f"{version:<3} | 정답 {hit:>2}/{len(tests)} ({rate:>3.0f}%) "
-          f"| 평균토큰 {tokens//len(tests):>5} | {sec:>4.0f}초")
-    
-    return {"name": name, "rate": rate,
-            "tokens": tokens // len(tests), "fails": fails}
+# ============================================================
+# 4. 테스트 질문
+# ============================================================
 
-
-# ============================================================================
-# 테스트 케이스
-# ============================================================================
 TESTS = [
-    {"q": "환불은 며칠 이내인가요?",  "keys": ["7일", "일주일"]},     
-    {"q": "교환 기간은?",             "keys": ["30일"]},
-    {"q": "대표이사 이름은?",         "keys": ["확인할 수 없"]},     
-    # ... 20개까지
+    {
+        "q": "환불은 며칠 이내인가요?",
+        "keys": ["7일", "일주일"]
+    },
+    {
+        "q": "교환 기간은?",
+        "keys": ["30일"]
+    },
+    {
+        "q": "대표이사 이름은?",
+        "keys": ["확인할 수 없"]
+    }
 ]
 
-print("■ 기준선 측정")
-print("-" * 78)
-baseline = run("기준선", 500, 50, 3, -1.0, "v2", TESTS)
+
+# ============================================================
+# 5. 실험 실행
+# ============================================================
+
+def run_experiment(name, chunk_size, overlap, k, version):
+
+    print()
+    print("=" * 70)
+    print(f"실험: {name}")
+    print(
+        f"chunk={chunk_size}, "
+        f"overlap={overlap}, "
+        f"k={k}, "
+        f"prompt={version}"
+    )
+    print("=" * 70)
+
+
+    # --------------------------------------------------------
+    # STEP 1. PDF 문서를 chunk로 자릅니다.
+    # --------------------------------------------------------
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap
+    )
+
+    chunks = splitter.split_documents(documents)
+
+    print(f"① 문서 분할 완료: {len(chunks)}개")
+
+
+    # --------------------------------------------------------
+    # STEP 2. chunk를 임베딩하여 FAISS를 만듭니다.
+    # --------------------------------------------------------
+
+    store = FAISS.from_documents(
+        chunks,
+        embeddings
+    )
+
+    print("② FAISS 생성 완료")
+
+
+    # --------------------------------------------------------
+    # STEP 3. 사용할 프롬프트와 LLM을 연결합니다.
+    # --------------------------------------------------------
+
+    chain = (
+        PROMPTS[version]
+        | llm
+        | StrOutputParser()
+    )
+
+    print(f"③ 프롬프트 준비 완료: {version}")
+
+
+    # --------------------------------------------------------
+    # STEP 4. 테스트 질문을 하나씩 실행합니다.
+    # --------------------------------------------------------
+
+    correct_count = 0
+
+    for test in TESTS:
+
+        question = test["q"]
+        answer_keys = test["keys"]
+
+
+        # 질문과 관련된 문서를 k개 찾습니다.
+        docs = store.similarity_search(
+            question,
+            k=k
+        )
+
+
+        # 검색된 문서를 하나의 문자열로 합칩니다.
+        context = ""
+
+        for doc in docs:
+            context += doc.page_content
+            context += "\n\n"
+
+
+        # Context를 이용하여 답변을 생성합니다.
+        answer = chain.invoke({
+            "context": context,
+            "question": question
+        })
+
+
+        # 답변에 정답 키워드가 있는지 검사합니다.
+        correct = False
+
+        for key in answer_keys:
+
+            if key in answer:
+                correct = True
+                break
+
+
+        # 정답이면 개수를 증가시킵니다.
+        if correct:
+            correct_count += 1
+
+
+        # 질문별 결과를 보여줍니다.
+        print()
+        print("질문:", question)
+        print("답변:", answer)
+        print("정답 여부:", correct)
+
+
+    # --------------------------------------------------------
+    # STEP 5. 전체 정답률을 계산합니다.
+    # --------------------------------------------------------
+
+    total = len(TESTS)
+
+    rate = correct_count / total * 100
+
+
+    print()
+    print("-" * 70)
+    print(
+        f"{name} 결과: "
+        f"{correct_count}/{total} "
+        f"({rate:.0f}%)"
+    )
+
+
+# ============================================================
+# 6. 실제 실험 시작
+# ============================================================
+
+run_experiment(
+    name="기준선",
+    chunk_size=500,
+    overlap=50,
+    k=3,
+    version="v2"
+)

@@ -1,29 +1,65 @@
-import sys
+# ============================================================
+# PDF 문서를 작은 조각(Chunk)으로 나누는 기본 실습입니다.
+# 문서를 불러온 뒤 RecursiveCharacterTextSplitter로 분할하고,
+# 생성된 조각의 개수, 내용, 메타데이터를 확인합니다.
+# ============================================================
+
 import os
+import sys
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# 06 디렉토리를 path에 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '06'))
+
+# ------------------------------------------------------------
+# 1. 06차시의 ingest.py를 사용할 수 있도록 경로를 추가합니다.
+# ------------------------------------------------------------
+
+CURRENT_DIR = os.path.dirname(__file__)
+INGEST_DIR = os.path.join(CURRENT_DIR, "..", "06")
+
+sys.path.insert(0, INGEST_DIR)
 
 from ingest import load_documents
 
 
+# ------------------------------------------------------------
+# 2. PDF 문서를 불러옵니다.
+# ------------------------------------------------------------
+
 docs = load_documents("../../data/manual.pdf")
 
+
+# ------------------------------------------------------------
+# 3. 문서를 나눌 기준을 설정합니다.
+# ------------------------------------------------------------
+
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=100,        # 조각 하나의 최대 길이
-    chunk_overlap=20,      # 겹치는 길이
-    separators=["\n\n", "\n", ". ", " ", ""],   # 자를 곳 우선순위     
-    length_function=len,   # 길이를 세는 방법 (글자 수)
+    chunk_size=100,       # 조각 하나의 최대 글자 수
+    chunk_overlap=20,     # 앞뒤 조각이 겹치는 글자 수
+    separators=["\n\n", "\n", ". ", " ", ""],  # 자를 위치의 우선순위
+    length_function=len,  # 글자 수를 기준으로 길이 계산
 )
 
-chunks = splitter.split_documents(docs) 
+
+# ------------------------------------------------------------
+# 4. 문서를 여러 개의 조각(Chunk)으로 나눕니다.
+# ------------------------------------------------------------
+
+chunks = splitter.split_documents(docs)
 
 
-print(f"원본 {len(docs)}쪽  →  조각 {len(chunks)}개") 
-print()
-print("--- 0번 조각 ---")
+# ------------------------------------------------------------
+# 5. 청킹 결과를 확인합니다.
+# ------------------------------------------------------------
+
+print(f"원본 {len(docs)}쪽 → 조각 {len(chunks)}개")
+
+
+# 첫 번째 조각의 내용을 확인합니다.
+print("\n--- 0번 조각 ---")
 print(chunks[0].page_content)
-print()
-print("메타데이터:", chunks[0].metadata)
+
+
+# 첫 번째 조각의 출처 정보를 확인합니다.
+print("\n메타데이터:")
+print(chunks[0].metadata)
