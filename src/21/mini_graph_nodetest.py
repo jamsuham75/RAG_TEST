@@ -1,5 +1,5 @@
 # 이 코드는 LangGraph에서 사용할 상태와 더미 노드를 정의합니다.
-# 실제 RAG나 LLM을 사용하지 않고 검색, 생성, 검증, 재시도 과정을 흉내 냅니다.
+# 실제 RAG나 LLM 없이 검색, 생성, 검증, 재시도 과정을 흉내 냅니다.
 
 from typing import TypedDict, List, Annotated
 import operator
@@ -10,7 +10,7 @@ import operator
 # ============================================================
 
 class MiniState(TypedDict):
-    # 사용자가 입력한 질문
+    # 사용자의 질문
     question: str
 
     # 검색된 문서 목록
@@ -26,8 +26,8 @@ class MiniState(TypedDict):
     # 재시도 횟수
     retries: int
 
-    # 노드 실행 기록
-    # 여러 노드에서 추가한 로그를 계속 누적합니다.
+    # 노드 실행 로그
+    # 각 노드의 로그를 계속 누적합니다.
     log: Annotated[List[str], operator.add]
 
 
@@ -37,13 +37,10 @@ class MiniState(TypedDict):
 
 def init(question: str) -> MiniState:
     """
-    그래프를 실행하기 위한 초기 상태를 만듭니다.
-
-    처음에는 검색 결과와 답변이 없으므로
-    관련 항목을 빈 값으로 설정합니다.
+    그래프 실행에 사용할 초기 상태를 만듭니다.
     """
 
-    # 그래프 실행에 사용할 초기 상태를 반환합니다.
+    # 초기 상태를 반환합니다.
     return {
         "question": question,
         "documents": [],
@@ -62,25 +59,24 @@ def retrieve(state: MiniState) -> dict:
     """
     질문을 바탕으로 검색 결과를 만듭니다.
 
-    질문에 '없는'이라는 단어가 있으면 검색 실패로 처리합니다.
-    그 외의 질문에는 가짜 문서 세 개를 반환합니다.
+    질문에 '없는'이 포함되면 검색 실패로 처리합니다.
     """
 
-    # 현재 질문을 가져옵니다.
+    # 질문을 가져옵니다.
     question = state["question"]
 
-    # 검색 결과를 저장할 변수를 만듭니다.
+    # 검색 결과를 저장할 리스트입니다.
     documents = []
 
-    # 질문에 '없는'이 포함되어 있는지 확인합니다.
+    # 검색 실패 상황인지 확인합니다.
     if "없는" in question:
-        # 검색 실패 상황을 만들기 위해 빈 리스트를 사용합니다.
+        # 검색 결과가 없는 상태를 만듭니다.
         documents = []
     else:
-        # 검색 성공 상황을 만들기 위해 가짜 문서를 사용합니다.
+        # 검색 성공 상황을 만듭니다.
         documents = ["조각A", "조각B", "조각C"]
 
-    # 검색된 문서 개수를 출력합니다.
+    # 검색 결과 개수를 출력합니다.
     print(f"   → retrieve: {len(documents)}건")
 
     # 변경된 값만 반환합니다.
@@ -98,31 +94,27 @@ def generate(state: MiniState) -> dict:
     """
     검색된 문서를 바탕으로 가짜 답변을 생성합니다.
 
-    첫 번째 답변은 부실한 답변으로 만들고,
-    재시도 후에는 좋은 답변으로 만듭니다.
+    첫 번째 답변은 부실하게 만들고,
+    재시도 후에는 좋은 답변을 만듭니다.
     """
 
     # 검색된 문서의 개수를 확인합니다.
     document_count = len(state["documents"])
 
-    # 현재 재시도 횟수를 확인합니다.
+    # 재시도 횟수를 확인합니다.
     retry_count = state["retries"]
 
-    # 답변 품질을 저장할 변수입니다.
-    quality = ""
-
-    # 한 번 이상 재시도했다면 좋은 답변을 만듭니다.
+    # 답변 품질을 결정합니다.
     if retry_count >= 1:
         quality = "좋은"
     else:
-        # 첫 번째 답변은 부실한 답변으로 처리합니다.
         quality = "부실한"
 
-    # 생성된 답변의 품질을 출력합니다.
-    print(f"   → generate: {quality} 답변")
-
-    # 가짜 답변을 생성합니다.
+    # 가짜 답변을 만듭니다.
     answer = f"{document_count}건 근거로 만든 {quality} 답변"
+
+    # 생성 결과를 출력합니다.
+    print(f"   → generate: {quality} 답변")
 
     # 변경된 값만 반환합니다.
     return {
@@ -139,37 +131,28 @@ def verify(state: MiniState) -> dict:
     """
     생성된 답변을 검증합니다.
 
-    답변에 '좋은'이라는 단어가 있으면 통과시키고,
-    없으면 재시도 대상으로 처리합니다.
+    답변에 '좋은'이 포함되면 통과시키고,
+    그렇지 않으면 재시도 대상으로 처리합니다.
     """
 
     # 현재 답변을 가져옵니다.
     answer = state["answer"]
 
-    # 검증 결과를 저장할 변수를 만듭니다.
-    grade = ""
-    message = ""
-
-    # 답변에 '좋은'이라는 단어가 있는지 확인합니다.
+    # 답변 품질을 확인합니다.
     if "좋은" in answer:
-        # 좋은 답변이면 검증을 통과시킵니다.
-        grade = "pass"
-        message = "통과"
-    else:
-        # 부실한 답변이면 재시도 대상으로 처리합니다.
-        grade = "retry"
-        message = "실패"
-
-    # 검증 결과를 출력합니다.
-    if grade == "pass":
         print("   → verify: 통과")
-    else:
-        print("   → verify: 재시도")
 
-    # 검증 결과와 로그를 반환합니다.
+        return {
+            "grade": "pass",
+            "log": ["검증 통과"],
+        }
+
+    # 좋은 답변이 아니면 재시도합니다.
+    print("   → verify: 재시도")
+
     return {
-        "grade": grade,
-        "log": [f"검증 {message}"],
+        "grade": "retry",
+        "log": ["검증 실패"],
     }
 
 
@@ -182,10 +165,10 @@ def bump(state: MiniState) -> dict:
     재시도 횟수를 1 증가시킵니다.
     """
 
-    # 현재 재시도 횟수에 1을 더합니다.
+    # 재시도 횟수를 1 증가시킵니다.
     retry_count = state["retries"] + 1
 
-    # 증가한 재시도 횟수를 출력합니다.
+    # 재시도 횟수를 출력합니다.
     print(f"   → bump: {retry_count}회차")
 
     # 변경된 값만 반환합니다.
@@ -204,7 +187,7 @@ def fallback(state: MiniState) -> dict:
     검색에 실패했을 때 안내 답변을 반환합니다.
     """
 
-    # Fallback 노드가 실행되었음을 출력합니다.
+    # Fallback 실행을 출력합니다.
     print("   → fallback")
 
     # 안내 답변과 포기 상태를 반환합니다.
@@ -227,19 +210,23 @@ if __name__ == "__main__":
     state = init("환불 규정은?")
 
     # Retriever 노드를 테스트합니다.
-    print("1) retrieve:", retrieve(state))
+    retrieve_result = retrieve(state)
+    print("1) retrieve:", retrieve_result)
 
-    # 검색 결과가 있다고 가정합니다.
+    # 검색 결과를 임의로 설정합니다.
     state["documents"] = ["조각A", "조각B"]
 
     # Generator 노드를 테스트합니다.
-    print("2) generate:", generate(state))
+    generate_result = generate(state)
+    print("2) generate:", generate_result)
 
-    # 부실한 답변이 생성되었다고 가정합니다.
+    # 부실한 답변을 임의로 설정합니다.
     state["answer"] = "부실한 답변"
 
     # Verifier 노드를 테스트합니다.
-    print("3) verify:  ", verify(state))
+    verify_result = verify(state)
+    print("3) verify:  ", verify_result)
 
-    # 재시도 횟수를 증가시키는 노드를 테스트합니다.
-    print("4) bump:    ", bump(state))
+    # Bump 노드를 테스트합니다.
+    bump_result = bump(state)
+    print("4) bump:    ", bump_result)
